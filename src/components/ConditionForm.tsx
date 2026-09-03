@@ -103,7 +103,7 @@ export function ConditionForm({ value, onChange }: Props) {
                 <label>충전물 재료명</label>
                 <input
                   type="text"
-                  style={{ width: 160, textAlign: 'left' }}
+                  className="mat-input"
                   placeholder="예: 점토, 방해석"
                   value={value.infillingMaterial ?? ''}
                   onChange={(e) => patch({ infillingMaterial: e.target.value })}
@@ -114,19 +114,11 @@ export function ConditionForm({ value, onChange }: Props) {
         );
       })}
 
-      <div className="field" style={{ marginTop: 4, alignItems: 'flex-start' }}>
-        <label style={{ paddingTop: 8 }}>특이사항</label>
+      <div className="cond-note">
+        <label>특이사항</label>
         <textarea
           rows={2}
-          style={{
-            flex: 1,
-            font: 'inherit',
-            padding: '8px 10px',
-            borderRadius: 8,
-            border: '1px solid var(--border)',
-            background: 'var(--bg)',
-            color: 'var(--text)',
-          }}
+          placeholder="특이사항 입력"
           value={value.freeText}
           onChange={(e) => patch({ freeText: e.target.value })}
         />

@@ -11,7 +11,7 @@ import Dexie, { type EntityTable } from 'dexie';
 import type { Condition } from '../lib/scoring/condition';
 import type { SeepageClass, SpacingClass } from '../lib/scoring/condition';
 import { emptyCondition } from '../lib/scoring/condition';
-import { nextSetName, nextSiteId } from '../lib/labels';
+import { composeLocation, nextSetName, nextSiteId } from '../lib/labels';
 import type { MeasurementQuality, Orientation } from '../lib/sensors/orientation';
 
 export type DiscontinuityType = '절리' | '층리' | '단층' | '편리·엽리' | '기타';
@@ -46,9 +46,13 @@ export interface Gps {
 export interface Station {
   id: string;
   facilityId: string;
-  /** "Site-A" */
+  /** "SITE-A" */
   siteId: string;
-  /** "측점 58m 비탈면 하부" */
+  /** 조사 시 바뀌는 값: 측점 거리(m) */
+  staValue?: number;
+  /** 조사 시 바뀌는 값: 비탈면 위치 (상부/중부/하부) */
+  slopePosition?: '상부' | '중부' | '하부' | null;
+  /** 위치설명 — staValue·slopePosition 으로 자동 구성 ("측점 58m 비탈면 하부") */
   location: string;
   gps?: Gps;
   surveyor: string;
@@ -201,6 +205,25 @@ export async function updateFacility(id: string, patch: Partial<Facility>): Prom
 }
 export async function updateStation(id: string, patch: Partial<Station>): Promise<void> {
   await db.stations.update(id, { ...patch, updatedAt: Date.now() });
+}
+
+/** 측점거리·위치 중 하나를 바꾸고, 두 값으로 location 을 재구성 (현재 저장값 기준). */
+export async function setStationLocationPart(
+  id: string,
+  part: { staValue?: number; slopePosition?: '상부' | '중부' | '하부' | null },
+): Promise<void> {
+  await db.transaction('rw', db.stations, async () => {
+    const row = await db.stations.get(id);
+    if (!row) return;
+    const staValue = 'staValue' in part ? part.staValue : row.staValue;
+    const slopePosition = 'slopePosition' in part ? (part.slopePosition ?? null) : row.slopePosition;
+    await db.stations.update(id, {
+      staValue,
+      slopePosition,
+      location: composeLocation(staValue, slopePosition),
+      updatedAt: Date.now(),
+    });
+  });
 }
 export async function updateSet(id: string, patch: Partial<DiscontinuitySet>): Promise<void> {
   await db.sets.update(id, { ...patch, updatedAt: Date.now() });

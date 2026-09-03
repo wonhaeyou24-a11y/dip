@@ -7,12 +7,13 @@ import {
   createSet,
   db,
   deleteSetCascade,
+  setStationLocationPart,
   updateStation,
   type DiscontinuitySet,
   type Station,
 } from '../db/db';
 import { formatGps, getCurrentGps } from '../lib/geo';
-import { SITE_IDS } from '../lib/labels';
+import { SITE_IDS, SLOPE_POSITIONS, type SlopePosition } from '../lib/labels';
 import { formatDipDipDir } from '../lib/sensors/orientation';
 import { SEEPAGE_CLASSES, SEEPAGE_LABELS, type SeepageClass } from '../lib/scoring/condition';
 
@@ -45,7 +46,6 @@ export function StationScreen() {
     }
   };
 
-  // 측점 생성 직후: 현위치 GPS 자동 저장 (1회)
   useEffect(() => {
     if (!station || gpsTried.current) return;
     gpsTried.current = true;
@@ -68,9 +68,9 @@ export function StationScreen() {
 
       <div className="card">
         <h2>측점 정보</h2>
-        <div className="form-grid">
-          <label>
-            Site ID
+        <div className="rows">
+          <div className="row">
+            <span className="row-label">Site ID</span>
             <select value={st.siteId} onChange={(e) => save({ siteId: e.target.value })}>
               {SITE_IDS.map((s) => (
                 <option key={s} value={s}>
@@ -79,28 +79,98 @@ export function StationScreen() {
               ))}
               {!SITE_IDS.includes(st.siteId) && <option value={st.siteId}>{st.siteId}</option>}
             </select>
-          </label>
-          <label>
-            위치 설명
-            <input
-              defaultValue={st.location}
-              placeholder="예: 측점 58m 비탈면 하부"
-              onBlur={(e) => save({ location: e.target.value })}
-            />
-          </label>
-          <label>
-            조사자
+          </div>
+          <div className="row">
+            <span className="row-label">측점 거리</span>
+            <span className="row-inline">
+              <input
+                className="w-sm"
+                type="number"
+                inputMode="decimal"
+                placeholder="58"
+                defaultValue={st.staValue ?? ''}
+                onBlur={(e) => setStationLocationPart(sid, { staValue: num(e.target.value) })}
+              />
+              <span className="unit">m 비탈면</span>
+            </span>
+          </div>
+          <div className="row">
+            <span className="row-label">위치</span>
+            <select
+              value={st.slopePosition ?? ''}
+              onChange={(e) =>
+                setStationLocationPart(sid, {
+                  slopePosition: (e.target.value || null) as SlopePosition | null,
+                })
+              }
+            >
+              <option value="">선택</option>
+              {SLOPE_POSITIONS.map((p) => (
+                <option key={p} value={p}>
+                  {p}
+                </option>
+              ))}
+            </select>
+          </div>
+          {st.location && (
+            <div className="row">
+              <span className="row-label">위치설명</span>
+              <span className="row-value muted">{st.location}</span>
+            </div>
+          )}
+          <div className="row">
+            <span className="row-label">조사자</span>
             <input defaultValue={st.surveyor} onBlur={(e) => save({ surveyor: e.target.value })} />
-          </label>
-          <label>
-            조사일
+          </div>
+          <div className="row">
+            <span className="row-label">조사일</span>
             <input
               type="date"
               defaultValue={toDateInput(st.surveyedAt)}
               onBlur={(e) => save({ surveyedAt: fromDateInput(e.target.value, st.surveyedAt) })}
             />
-          </label>
+          </div>
         </div>
+      </div>
+
+      <div className="card">
+        <h2>측점 공통</h2>
+        <div className="rows">
+          <div className="row">
+            <span className="row-label">누수 상태</span>
+            <select
+              value={st.seepage ?? ''}
+              onChange={(e) => save({ seepage: (e.target.value || null) as SeepageClass | null })}
+            >
+              <option value="">선택</option>
+              {SEEPAGE_CLASSES.map((c) => (
+                <option key={c} value={c}>
+                  {SEEPAGE_LABELS[c]}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="row">
+            <span className="row-label">암괴크기 (m)</span>
+            <span className="row-inline">
+              {(['x', 'y', 'z'] as const).map((k) => (
+                <input
+                  key={k}
+                  className="w-xs"
+                  type="number"
+                  inputMode="decimal"
+                  placeholder={k}
+                  defaultValue={st.blockSize?.[k] ?? ''}
+                  onBlur={(e) => {
+                    const cur = st.blockSize ?? { x: 0, y: 0, z: 0 };
+                    save({ blockSize: { ...cur, [k]: num(e.target.value) ?? 0 } });
+                  }}
+                />
+              ))}
+            </span>
+          </div>
+        </div>
+        <p className="hint">반발경도·강도는 결과보고에 빈칸으로 출력됩니다 (사무실 기입).</p>
       </div>
 
       <button
@@ -147,56 +217,10 @@ export function StationScreen() {
       </div>
 
       <div className="card">
-        <h2>측점 공통</h2>
-        <div className="form-grid">
-          <label>
-            누수 상태
-            <select
-              value={st.seepage ?? ''}
-              onChange={(e) => save({ seepage: (e.target.value || null) as SeepageClass | null })}
-            >
-              <option value="">선택</option>
-              {SEEPAGE_CLASSES.map((c) => (
-                <option key={c} value={c}>
-                  {SEEPAGE_LABELS[c]}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            암괴크기 (m, x×y×z)
-            <span className="triple">
-              {(['x', 'y', 'z'] as const).map((k) => (
-                <input
-                  key={k}
-                  type="number"
-                  inputMode="decimal"
-                  placeholder={k}
-                  defaultValue={st.blockSize?.[k] ?? ''}
-                  onBlur={(e) => {
-                    const cur = st.blockSize ?? { x: 0, y: 0, z: 0 };
-                    save({ blockSize: { ...cur, [k]: num(e.target.value) ?? 0 } });
-                  }}
-                />
-              ))}
-            </span>
-          </label>
-        </div>
-        <p className="muted" style={{ marginTop: 8 }}>
-          반발경도·강도는 현장에서 입력하지 않습니다 (결과보고에 빈칸으로 출력).
-        </p>
-      </div>
-
-      <div className="card">
         <h2>위치 (GPS)</h2>
         <p className="muted">{gpsBusy ? '측정 중…' : formatGps(st.gps)}</p>
         {gpsErr && <div className="warn">{gpsErr}</div>}
-        <button
-          className="ghost"
-          onClick={captureGps}
-          disabled={gpsBusy}
-          style={{ marginTop: 8, width: '100%' }}
-        >
+        <button className="ghost full" onClick={captureGps} disabled={gpsBusy} style={{ marginTop: 8 }}>
           {st.gps ? 'GPS 다시 측정' : 'GPS 측정'}
         </button>
       </div>

@@ -21,6 +21,7 @@ import {
   SEEPAGE_LABELS,
   SPACING_RANGE_TEXT,
   STAGE_SCORES,
+  evaluateCondition,
   type ConditionItemKey,
 } from '../scoring/condition';
 import { formatDipDipDir } from '../sensors/orientation';
@@ -36,57 +37,60 @@ const FILL_SCORE = solidFill('FFFFFF00');
 const FILL_PHOTO = solidFill('FFFAFAFA');
 const thin = { style: 'thin' as const, color: { argb: 'FF000000' } };
 const BORDER: Partial<ExcelJSNS.Borders> = { top: thin, left: thin, bottom: thin, right: thin };
-const CENTER: Partial<ExcelJSNS.Alignment> = {
-  horizontal: 'center',
-  vertical: 'middle',
-  wrapText: true,
-};
+const CENTER: Partial<ExcelJSNS.Alignment> = { horizontal: 'center', vertical: 'middle', wrapText: true };
 
-function bandText(stage: 1 | 2 | 3 | 4 | 5): string {
+type Stage = 1 | 2 | 3 | 4 | 5;
+function bandText(stage: Stage): string {
   const s = STAGE_SCORES[stage];
   return s.length === 1 ? String(s[0]) : `${s[0]}~${s[1]}`;
 }
-
 function extFromType(type: string): 'jpeg' | 'png' | 'gif' {
   if (type.includes('png')) return 'png';
   if (type.includes('gif')) return 'gif';
   return 'jpeg';
 }
 
-export interface FacilityReportData {
-  facility: Facility;
-  stations: (Station & { sets: DiscontinuitySet[]; photos: Photo[] })[];
-}
+type StationFull = Station & { sets: DiscontinuitySet[]; photos: Photo[] };
+type PhotoImg = { buffer: ArrayBuffer; extension: 'jpeg' | 'png' | 'gif' };
 
-export async function loadFacilityReportData(facilityId: string): Promise<FacilityReportData> {
+export async function buildFacilityReport(facilityId: string): Promise<Blob> {
+  const { default: ExcelJS } = await import('exceljs');
+
   const facility = await db.facilities.get(facilityId);
   if (!facility) throw new Error('시설물을 찾을 수 없습니다.');
-  const stations = await db.stations.where('facilityId').equals(facilityId).toArray();
-  stations.sort((a, b) => a.createdAt - b.createdAt);
-  const withChildren = await Promise.all(
-    stations.map(async (st) => ({
+  const stationRows = await db.stations.where('facilityId').equals(facilityId).toArray();
+  stationRows.sort((a, b) => a.createdAt - b.createdAt);
+
+  const stations: StationFull[] = await Promise.all(
+    stationRows.map(async (st) => ({
       ...st,
       sets: await db.sets.where('stationId').equals(st.id).sortBy('order'),
       photos: await db.photos.where('stationId').equals(st.id).toArray(),
     })),
   );
-  return { facility, stations: withChildren };
-}
 
-export async function buildFacilityReport(facilityId: string): Promise<Blob> {
-  const { default: ExcelJS } = await import('exceljs');
-  const data = await loadFacilityReportData(facilityId);
+  // 사진 → ArrayBuffer 미리 변환 (addImage 는 동기)
+  const photoImgs = new Map<string, PhotoImg>();
+  for (const st of stations) {
+    for (const p of st.photos) {
+      const src = p.thumbnail ?? p.blob;
+      try {
+        photoImgs.set(p.id, { buffer: await src.arrayBuffer(), extension: extFromType(src.type) });
+      } catch {
+        /* 손상된 사진은 건너뜀 */
+      }
+    }
+  }
 
   const wb = new ExcelJS.Workbook();
   wb.creator = 'DiscontinuityShot';
-  const ws = wb.addWorksheet(sanitizeSheetName(data.facility.name), {
+  const ws = wb.addWorksheet(sanitizeSheetName(facility.name), {
     views: [{ showGridLines: false }],
     pageSetup: { paperSize: 9, orientation: 'landscape', fitToPage: true, fitToWidth: 1, fitToHeight: 0 },
   });
 
-  const maxSets = Math.max(2, ...data.stations.map((s) => s.sets.length || 0));
+  const maxSets = Math.max(2, ...stations.map((s) => s.sets.length || 0));
   const lastCol = 1 + maxSets * 3;
-
   ws.getColumn(1).width = 13;
   for (let i = 0; i < maxSets; i++) {
     ws.getColumn(2 + i * 3).width = 17;
@@ -95,12 +99,8 @@ export async function buildFacilityReport(facilityId: string): Promise<Blob> {
   }
 
   let row = 1;
-  for (const st of data.stations) {
-    row = renderStation(ExcelJS, wb, ws, row, data.facility, st, lastCol) + 2;
-  }
-  if (data.stations.length === 0) {
-    ws.getCell(1, 1).value = '측점 데이터가 없습니다.';
-  }
+  for (const st of stations) row = renderStation(wb, ws, row, facility, st, lastCol, photoImgs) + 2;
+  if (stations.length === 0) ws.getCell(1, 1).value = '측점 데이터가 없습니다.';
 
   const buf = await wb.xlsx.writeBuffer();
   return new Blob([buf], {
@@ -109,35 +109,35 @@ export async function buildFacilityReport(facilityId: string): Promise<Blob> {
 }
 
 function renderStation(
-  ExcelJS: typeof ExcelJSNS,
   wb: ExcelJSNS.Workbook,
   ws: ExcelJSNS.Worksheet,
   startRow: number,
   facility: Facility,
-  st: Station & { sets: DiscontinuitySet[]; photos: Photo[] },
+  st: StationFull,
   lastCol: number,
+  photoImgs: Map<string, PhotoImg>,
 ): number {
   const first = 2;
   const setCols = (i: number) => ({ l: first + i * 3, m: first + i * 3 + 1, r: first + i * 3 + 2 });
   const colL = (n: number) => ws.getColumn(n).letter;
-  const merge = (r: number, c1: number, c2: number) => {
-    if (c2 > c1) ws.mergeCells(r, c1, r, c2);
+  const merge = (rr: number, c1: number, c2: number) => {
+    if (c2 > c1) ws.mergeCells(rr, c1, rr, c2);
   };
   const put = (
-    r: number,
+    rr: number,
     c: number,
     val: ExcelJSNS.CellValue,
     o: { fill?: ExcelJSNS.FillPattern; bold?: boolean; color?: string; left?: boolean } = {},
   ) => {
-    const cell = ws.getCell(r, c);
+    const cell = ws.getCell(rr, c);
     cell.value = val;
     cell.border = BORDER;
     cell.alignment = o.left ? { ...CENTER, horizontal: 'left', indent: 1 } : CENTER;
     if (o.fill) cell.fill = o.fill;
     if (o.bold || o.color) cell.font = { bold: o.bold, color: o.color ? { argb: o.color } : undefined };
   };
-  const rowBorders = (r: number) => {
-    for (let c = 1; c <= lastCol; c++) if (!ws.getCell(r, c).border) ws.getCell(r, c).border = BORDER;
+  const rowBorders = (rr: number) => {
+    for (let c = 1; c <= lastCol; c++) if (!ws.getCell(rr, c).border) ws.getCell(rr, c).border = BORDER;
   };
 
   const sets = st.sets;
@@ -194,7 +194,7 @@ function renderStation(
       const item = s.condition[key as ConditionItemKey];
       if (item) {
         put(r, c.l, ITEM_LABELS[key][item.stage - 1], { fill: FILL_LABEL });
-        put(r, c.m, bandText(item.stage));
+        put(r, c.m, bandText(item.stage as Stage));
         put(r, c.r, item.score, { fill: FILL_SCORE, bold: true });
       } else {
         put(r, c.l, '-', { fill: FILL_LABEL });
@@ -207,12 +207,20 @@ function renderStation(
   });
   const scoreEnd = r - 1;
 
+  // 합계 / 산술평균 / 절리상태점수 — 계산된 값 + (Excel용) 수식
+  const evals = sets.map((s) => evaluateCondition(s.condition));
+
   put(r, 1, '', { fill: FILL_HEAD });
   sets.forEach((_s, i) => {
     const c = setCols(i);
     merge(r, c.l, c.m);
     put(r, c.l, '합 계', { fill: FILL_HEAD });
-    put(r, c.r, { formula: `SUM(${colL(c.r)}${scoreStart}:${colL(c.r)}${scoreEnd})` }, { bold: true });
+    put(
+      r,
+      c.r,
+      { formula: `SUM(${colL(c.r)}${scoreStart}:${colL(c.r)}${scoreEnd})`, result: evals[i].sum },
+      { bold: true },
+    );
   });
   rowBorders(r);
   const sumRow = r;
@@ -223,31 +231,21 @@ function renderStation(
     const c = setCols(i);
     merge(r, c.l, c.m);
     put(r, c.l, '산술평균', { fill: FILL_HEAD });
-    put(r, c.r, { formula: `ROUND(${colL(c.r)}${sumRow}/5,1)` });
+    put(r, c.r, { formula: `ROUND(${colL(c.r)}${sumRow}/5,1)`, result: evals[i].mean });
+    ws.getCell(r, c.r).numFmt = '0.0';
   });
   rowBorders(r);
-  const meanRow = r;
   r++;
 
   put(r, 1, '절리상태점수', { fill: FILL_HEAD, bold: true });
   sets.forEach((_s, i) => {
     const c = setCols(i);
     merge(r, c.l, c.r);
-    put(
-      r,
-      c.l,
-      {
-        formula: `${colL(c.r)}${sumRow}&"/5 = "&TEXT(${colL(c.r)}${meanRow},"0.0")&" → "&ROUND(${colL(
-          c.r,
-        )}${meanRow},0)`,
-      },
-      { bold: true },
-    );
+    put(r, c.l, `${evals[i].sum}/5 = ${evals[i].mean.toFixed(1)} → ${evals[i].score}`, { bold: true });
   });
   rowBorders(r);
   r++;
 
-  // 반발경도·강도는 현장 입력 안 함 → 결과보고에 빈칸으로 출력 (담당자가 사무실에서 기입)
   const common: [string, string][] = [
     ['반발경도', ''],
     ['강 도', ''],
@@ -273,10 +271,11 @@ function renderStation(
     [1, mid],
     [mid + 1, lastCol],
   ];
+  const BOX_ROWS = 9;
   for (let rw = 0; rw < Math.ceil(PHOTO_CATEGORIES.length / 2); rw++) {
     const boxTop = r;
-    for (let k = 0; k < 6; k++) {
-      ws.getRow(r).height = 16;
+    for (let k = 0; k < BOX_ROWS; k++) {
+      ws.getRow(r).height = 18;
       r++;
     }
     const capRow = r;
@@ -286,21 +285,30 @@ function renderStation(
       if (idx >= PHOTO_CATEGORIES.length) continue;
       const cat = PHOTO_CATEGORIES[idx];
       const [c1, c2] = spans[col];
-      ws.mergeCells(boxTop, c1, boxTop + 5, c2);
+      ws.mergeCells(boxTop, c1, boxTop + BOX_ROWS - 1, c2);
       const box = ws.getCell(boxTop, c1);
       box.fill = FILL_PHOTO;
-      for (let rr = boxTop; rr <= boxTop + 5; rr++)
+      box.alignment = CENTER;
+      for (let rr = boxTop; rr <= boxTop + BOX_ROWS - 1; rr++)
         for (let cc = c1; cc <= c2; cc++) ws.getCell(rr, cc).border = BORDER;
 
       const photo = photoByCat.get(cat);
-      if (photo) {
-        // 원본이 크면 썸네일 사용
-        const src = photo.blob.size <= 400_000 ? photo.blob : (photo.thumbnail ?? photo.blob);
-        void embedPhoto(ExcelJS, wb, ws, src, boxTop, c1, c2 - c1 + 1);
+      const img = photo ? photoImgs.get(photo.id) : undefined;
+      if (img) {
+        try {
+          const id = wb.addImage({ buffer: img.buffer, extension: img.extension });
+          ws.addImage(id, {
+            tl: { col: c1 - 1 + 0.15, row: boxTop - 1 + 0.15 } as ExcelJSNS.Anchor,
+            ext: { width: 240, height: 150 },
+            editAs: 'oneCell',
+          });
+        } catch {
+          box.value = '［ 사진 삽입 실패 ］';
+        }
       } else {
         box.value = '［ 사진 없음 ］';
-        box.alignment = CENTER;
       }
+
       ws.mergeCells(capRow, c1, capRow, c2);
       const cap = ws.getCell(capRow, c1);
       cap.value = cat;
@@ -312,31 +320,6 @@ function renderStation(
   }
 
   return r;
-}
-
-const photoBufferCache = new WeakMap<Blob, Promise<ArrayBuffer>>();
-
-async function embedPhoto(
-  _ExcelJS: typeof ExcelJSNS,
-  wb: ExcelJSNS.Workbook,
-  ws: ExcelJSNS.Worksheet,
-  blob: Blob,
-  topRow: number,
-  leftCol: number,
-  colSpan: number,
-): Promise<void> {
-  let bufP = photoBufferCache.get(blob);
-  if (!bufP) {
-    bufP = blob.arrayBuffer();
-    photoBufferCache.set(blob, bufP);
-  }
-  const buffer = await bufP;
-  const imageId = wb.addImage({ buffer, extension: extFromType(blob.type) });
-  const width = Math.min(320, colSpan * 60);
-  ws.addImage(imageId, {
-    tl: { col: leftCol - 1 + 0.1, row: topRow - 1 + 0.1 },
-    ext: { width, height: width * 0.7 },
-  });
 }
 
 function sanitizeSheetName(name: string): string {

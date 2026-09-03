@@ -2,7 +2,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { useRef, useState } from 'react';
 import { db, PHOTO_CATEGORIES, uid, type Photo, type PhotoCategory } from '../db/db';
 import { getCurrentGps } from '../lib/geo';
-import { blobUrl, makeThumbnail } from '../lib/photo';
+import { processPhoto, useObjectUrl } from '../lib/photo';
 
 interface Props {
   facilityId: string;
@@ -46,28 +46,35 @@ function PhotoSlot({
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const url = useObjectUrl(photo?.thumbnail ?? photo?.blob);
 
   const onFile = async (file: File) => {
     setBusy(true);
+    setErr(null);
     try {
-      const thumbnail = await makeThumbnail(file);
+      const { display, thumbnail } = await processPhoto(file);
       let gps;
       try {
         gps = await getCurrentGps(6000);
       } catch {
         gps = undefined;
       }
-      if (photo) await db.photos.delete(photo.id);
-      await db.photos.add({
-        id: uid(),
-        facilityId,
-        stationId,
-        category,
-        blob: file,
-        thumbnail,
-        gps,
-        takenAt: Date.now(),
+      await db.transaction('rw', db.photos, async () => {
+        if (photo) await db.photos.delete(photo.id);
+        await db.photos.add({
+          id: uid(),
+          facilityId,
+          stationId,
+          category,
+          blob: display,
+          thumbnail,
+          gps,
+          takenAt: Date.now(),
+        });
       });
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : '사진 저장 실패');
     } finally {
       setBusy(false);
     }
@@ -93,24 +100,17 @@ function PhotoSlot({
         disabled={busy}
         aria-label={`${category} 촬영`}
       >
-        {photo ? (
-          <img src={blobUrl(photo.thumbnail ?? photo.blob)} alt={category} />
-        ) : (
-          <span>{busy ? '처리 중…' : '＋ 촬영'}</span>
-        )}
+        {url ? <img src={url} alt={category} /> : <span>{busy ? '처리 중…' : '＋ 촬영'}</span>}
       </button>
       <div className="photo-cap">
         <span>{category}</span>
         {photo && (
-          <button
-            className="link-danger"
-            onClick={() => db.photos.delete(photo.id)}
-            aria-label="사진 삭제"
-          >
+          <button className="link-danger" onClick={() => db.photos.delete(photo.id)} aria-label="사진 삭제">
             삭제
           </button>
         )}
       </div>
+      {err && <div className="warn">{err}</div>}
     </div>
   );
 }
