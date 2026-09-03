@@ -1,0 +1,127 @@
+<title>불연속면조사 결과보고 양식</title>
+<style>
+  :root{
+    --bg:#fff; --ink:#1a1a1a; --line:#333; --head:#f2f2f2;
+    --label:#dce6f1; --score:#ffff00; --muted:#666; --red:#e00; --photo:#fafafa;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#1e1e1e; --ink:#eee; --line:#888; --head:#2c2c2c;
+      --label:#28405c; --score:#8a7a00; --muted:#aaa; --red:#ff6b6b; --photo:#262626;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#1e1e1e; --ink:#eee; --line:#888; --head:#2c2c2c;
+    --label:#28405c; --score:#8a7a00; --muted:#aaa; --red:#ff6b6b; --photo:#262626;
+  }
+  body{background:var(--bg); color:var(--ink); font-family:"Malgun Gothic","맑은 고딕",system-ui,sans-serif; padding:16px;}
+  .wrap{max-width:920px; margin:0 auto;}
+  h1{font-size:15px; margin:0 0 4px;}
+  .note{font-size:12px; color:var(--muted); margin:0 0 16px;}
+  .scroll{overflow-x:auto; margin-bottom:22px;}
+  table{border-collapse:collapse; width:100%; font-size:12.5px;}
+  td,th{border:1px solid var(--line); padding:5px 7px; text-align:center; vertical-align:middle;}
+  .title{background:var(--head); font-weight:700; font-size:14px; padding:9px;}
+  .sub{font-size:11px; color:var(--muted); font-weight:400;}
+  .rh{background:var(--head); font-weight:600; white-space:nowrap;}
+  .rh.l{text-align:left;}
+  .lab{background:var(--label);}
+  .sc{background:var(--score); font-weight:700;}
+  .red{color:var(--red); font-weight:700;}
+  .photobox{background:var(--photo); height:74px; color:var(--muted); font-size:11px;}
+  .cap{background:var(--head); font-size:11px;}
+  .legend{font-size:11.5px; color:var(--muted); margin-top:4px; line-height:1.7;}
+  .legend b{color:var(--ink);}
+  .stackhint{font-size:12px; color:var(--muted); text-align:center; margin:6px 0 18px;}
+</style>
+<div class="wrap">
+  <h1>결과보고 Excel 양식 v2 — 형식 검토용</h1>
+  <p class="note">파일 = 시설물 1개 · 시트 1개. 한 시트에 측점별 표를 세로로 이어 정리. 아래는 Site‑A + Site‑B(축약).</p>
+
+  <!-- ── Site-A ── -->
+  <div class="scroll">
+  <table>
+    <tr><td class="title" colspan="10">불연속면 특성 (Site-A) : 측점 58m 비탈면 하부<br><span class="sub">시설물: ○○터널 절취사면　|　조사자: 홍길동　|　조사일: 2026-09-03</span></td></tr>
+    <tr><td class="rh">구 성</td><td class="rh" colspan="3">Set 1</td><td class="rh" colspan="3">Set 2</td><td class="rh" colspan="3">Set 3</td></tr>
+    <tr><td class="rh">종 류</td><td colspan="3">절리</td><td colspan="3">절리</td><td colspan="3">절리</td></tr>
+    <tr><td class="rh">방향성</td><td class="red" colspan="3">83/089</td><td class="red" colspan="3">89/329</td><td class="red" colspan="3">12/148</td></tr>
+    <tr><td class="rh">간 격</td><td colspan="3">0.2 ~ 0.6m</td><td colspan="3">0.2 ~ 0.6m</td><td colspan="3">0.2 ~ 0.6m</td></tr>
+    <tr><td class="rh l">① 연장성</td>
+      <td class="lab">1~3m 미만</td><td>1~2</td><td class="sc">2</td>
+      <td class="lab">1~3m 미만</td><td>1~2</td><td class="sc">2</td>
+      <td class="lab">1~3m 미만</td><td>1~2</td><td class="sc">2</td></tr>
+    <tr><td class="rh l">② 틈새</td>
+      <td class="lab">0.1~1mm 미만</td><td>3~4</td><td class="sc">4</td>
+      <td class="lab">0.1~1mm 미만</td><td>3~4</td><td class="sc">4</td>
+      <td class="lab">0.1~1mm 미만</td><td>3~4</td><td class="sc">4</td></tr>
+    <tr><td class="rh l">③ 거칠기</td>
+      <td class="lab">약간 거침</td><td>3~4</td><td class="sc">4</td>
+      <td class="lab">약간 거침</td><td>3~4</td><td class="sc">4</td>
+      <td class="lab">약간 거침</td><td>3~4</td><td class="sc">4</td></tr>
+    <tr><td class="rh l">④ 충진물질</td>
+      <td class="lab">연약&lt; 5mm</td><td>5~6</td><td class="sc">5</td>
+      <td class="lab">연약&lt; 5mm</td><td>5~6</td><td class="sc">5</td>
+      <td class="lab">연약&lt; 5mm</td><td>5~6</td><td class="sc">5</td></tr>
+    <tr><td class="rh l">⑤ 풍화도</td>
+      <td class="lab">보통 풍화</td><td>3~4</td><td class="sc">4</td>
+      <td class="lab">보통 풍화</td><td>3~4</td><td class="sc">4</td>
+      <td class="lab">보통 풍화</td><td>3~4</td><td class="sc">4</td></tr>
+    <tr><td class="rh"></td><td class="rh" colspan="2">합 계</td><td><b>19</b></td><td class="rh" colspan="2">합 계</td><td><b>19</b></td><td class="rh" colspan="2">합 계</td><td><b>19</b></td></tr>
+    <tr><td class="rh"></td><td class="rh" colspan="2">산술평균</td><td>3.8</td><td class="rh" colspan="2">산술평균</td><td>3.8</td><td class="rh" colspan="2">산술평균</td><td>3.8</td></tr>
+    <tr><td class="rh">절리상태점수</td><td colspan="3"><b>19/5 = 3.8 → 4</b></td><td colspan="3"><b>19/5 = 3.8 → 4</b></td><td colspan="3"><b>19/5 = 3.8 → 4</b></td></tr>
+    <tr><td class="rh">반발경도</td><td colspan="9">45</td></tr>
+    <tr><td class="rh">강 도</td><td colspan="9">106.4　MPa</td></tr>
+    <tr><td class="rh">누 수</td><td colspan="9">완전건조</td></tr>
+    <tr><td class="rh">암괴크기</td><td colspan="9">0.6m × 0.6m × 0.6m</td></tr>
+    <tr><td colspan="10" style="border:none; height:8px;"></td></tr>
+    <tr><td class="rh l" colspan="10">조사 사진</td></tr>
+    <tr><td class="photobox" colspan="5">［ 사진 ］</td><td class="photobox" colspan="5">［ 사진 ］</td></tr>
+    <tr><td class="cap" colspan="5">조사 전경사진 ①</td><td class="cap" colspan="5">조사 전경사진 ②</td></tr>
+    <tr><td class="photobox" colspan="5">［ 사진 ］</td><td class="photobox" colspan="5">［ 사진 ］</td></tr>
+    <tr><td class="cap" colspan="5">절리 측정 사진</td><td class="cap" colspan="5">거칠기 조사 사진</td></tr>
+    <tr><td class="photobox" colspan="5">［ 사진 ］</td><td class="photobox" colspan="5">［ 사진 ］</td></tr>
+    <tr><td class="cap" colspan="5">슈미트(반발경도) 측정 사진</td><td class="cap" colspan="5">주향/경사 측정 사진</td></tr>
+    <tr><td class="photobox" colspan="5">［ 사진 ］</td><td class="photobox" colspan="5" style="background:transparent;border:none;"></td></tr>
+    <tr><td class="cap" colspan="5">점검망치 조사 사진</td><td colspan="5" style="border:none;"></td></tr>
+  </table>
+  </div>
+
+  <div class="stackhint">▼ 같은 시트에서 아래로 이어짐 (다음 측점) ▼</div>
+
+  <!-- ── Site-B (축약) ── -->
+  <div class="scroll">
+  <table>
+    <tr><td class="title" colspan="7">불연속면 특성 (Site-B) : 측점 122m 비탈면 중단부<br><span class="sub">시설물: ○○터널 절취사면　|　조사자: 홍길동　|　조사일: 2026-09-03</span></td></tr>
+    <tr><td class="rh">구 성</td><td class="rh" colspan="3">Set 1</td><td class="rh" colspan="3">Set 2</td></tr>
+    <tr><td class="rh">종 류</td><td colspan="3">절리</td><td colspan="3">층리</td></tr>
+    <tr><td class="rh">방향성</td><td class="red" colspan="3">75/275</td><td class="red" colspan="3">20/095</td></tr>
+    <tr><td class="rh">간 격</td><td colspan="3">0.06 ~ 0.2m</td><td colspan="3">0.2 ~ 0.6m</td></tr>
+    <tr><td class="rh l">① 연장성</td><td class="lab">3~10m 미만</td><td>3~4</td><td class="sc">3</td><td class="lab">10~20m 미만</td><td>5~6</td><td class="sc">5</td></tr>
+    <tr><td class="rh l">② 틈새</td><td class="lab">1~5mm 미만</td><td>5~6</td><td class="sc">6</td><td class="lab">&lt; 0.1mm</td><td>1~2</td><td class="sc">1</td></tr>
+    <tr><td class="rh l">③ 거칠기</td><td class="lab">거침</td><td>1~2</td><td class="sc">2</td><td class="lab">약간 거침</td><td>3~4</td><td class="sc">3</td></tr>
+    <tr><td class="rh l">④ 충진물질</td><td class="lab">연약≥ 5mm</td><td>7~8</td><td class="sc">8</td><td class="lab">단단&lt; 5mm</td><td>3~4</td><td class="sc">3</td></tr>
+    <tr><td class="rh l">⑤ 풍화도</td><td class="lab">심한 풍화</td><td>5~6</td><td class="sc">6</td><td class="lab">보통 풍화</td><td>3~4</td><td class="sc">4</td></tr>
+    <tr><td class="rh"></td><td class="rh" colspan="2">합 계</td><td><b>25</b></td><td class="rh" colspan="2">합 계</td><td><b>16</b></td></tr>
+    <tr><td class="rh"></td><td class="rh" colspan="2">산술평균</td><td>5.0</td><td class="rh" colspan="2">산술평균</td><td>3.2</td></tr>
+    <tr><td class="rh">절리상태점수</td><td colspan="3"><b>25/5 = 5.0 → 5</b></td><td colspan="3"><b>16/5 = 3.2 → 3</b></td></tr>
+    <tr><td class="rh">반발경도</td><td colspan="6">38</td></tr>
+    <tr><td class="rh">강 도</td><td colspan="6">74.2　MPa</td></tr>
+    <tr><td class="rh">누 수</td><td colspan="6">습함</td></tr>
+    <tr><td class="rh">암괴크기</td><td colspan="6">0.4m × 0.6m × 1.2m</td></tr>
+    <tr><td colspan="7" style="border:none; height:8px;"></td></tr>
+    <tr><td class="rh l" colspan="7">조사 사진</td></tr>
+    <tr><td class="photobox" colspan="4">［ 사진 ］</td><td class="photobox" colspan="3">［ 사진 ］</td></tr>
+    <tr><td class="cap" colspan="4">조사 전경사진 ①</td><td class="cap" colspan="3">조사 전경사진 ②</td></tr>
+    <tr><td colspan="7" style="border:none;font-size:11px;color:var(--muted);padding-top:4px;">… 절리 측정 / 거칠기 / 슈미트 / 주향·경사 / 점검망치 사진 (동일)</td></tr>
+  </table>
+  </div>
+
+  <div class="legend">
+    <b>계산</b> — 합계 = ①~⑤ 선택점수 합 · 산술평균 = 합계/5 · 절리상태점수 = 반올림 정수 (예 19/5 = 3.8 → <b>4</b>, 25/5 = 5.0 → 5)<br>
+    <b>입력 흐름</b> — 상태값 선택 → 점수구간 표시(예 3~4) → 조사자가 <b>하한/상한</b> 중 선택 입력 (1단계는 0점 자동)<br>
+    <b>셀 색</b> — <span style="background:var(--label);padding:0 4px;">파랑</span> 조사 상태값 · <span style="background:var(--score);padding:0 4px;">노랑</span> 선택 점수 · <span class="red">빨강</span> 방향성(경사/경사방향)<br>
+    <b>측점 공통</b> — 반발경도(R, 별도 입력) · 강도(MPa) · 누수 · 암괴크기<br>
+    <b>세트별</b> — 종류 · 방향성 · 간격(표 14.7 등급) · ①~⑤<br>
+    <b>파일/시트</b> — 시설물마다 파일 1개, 시트 1개. 측점 여러 개는 세로로 이어 정리.
+  </div>
+</div>
