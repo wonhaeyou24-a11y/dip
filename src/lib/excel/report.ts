@@ -98,15 +98,60 @@ function bordersRect(ctx: Ctx, r1: number, c1: number, r2: number, c2: number) {
   for (let rr = r1; rr <= r2; rr++)
     for (let cc = c1; cc <= c2; cc++) ctx.ws.getCell(rr, cc).border = BORDER;
 }
-function addImg(ctx: Ctx, dataUrl: string, col: number, row: number, ext: Ext) {
+/** Excel 열 너비(문자단위) → 픽셀 근사 (Calibri 11 기준) */
+const colPx = (w: number | undefined) => Math.round((w ?? 8.43) * 7 + 5);
+/** 행 높이(pt) → 픽셀 */
+const rowPx = (pt: number) => Math.round((pt * 4) / 3);
+
+const EMU_PER_PX = 9525;
+
+/** 시작 열(0-index)에서 px 오프셋 → { nativeCol, nativeColOff(EMU) } */
+function nativeColAnchor(ctx: Ctx, startCol0: number, offsetPx: number) {
+  let col = startCol0;
+  let rem = Math.max(0, offsetPx);
+  for (let i = 0; i < 64; i++) {
+    const cw = colPx(ctx.ws.getColumn(col + 1).width);
+    if (rem < cw || cw <= 0) return { nativeCol: col, nativeColOff: Math.round(rem * EMU_PER_PX) };
+    rem -= cw;
+    col++;
+  }
+  return { nativeCol: col, nativeColOff: 0 };
+}
+
+/**
+ * 이미지를 (c1..c2 × rTop..rTop+rows-1) 박스 안에 비율 유지·가운데 정렬로 삽입.
+ * 박스 행 높이는 모두 rowH(pt) 동일. ExcelJS 의 분수 col/row 앵커는 커스텀 열너비에서
+ * 어긋나므로 native EMU 좌표를 직접 준다.
+ */
+function placeImage(
+  ctx: Ctx,
+  dataUrl: string,
+  c1: number,
+  c2: number,
+  rTop: number,
+  rows: number,
+  rowH: number,
+  ext: Ext,
+) {
   if (!dataUrl) return;
   try {
     const id = ctx.wb.addImage({
       buffer: dataUrlToUint8Array(dataUrl) as unknown as ExcelJSNS.Buffer,
       extension: dataUrlExtension(dataUrl),
     });
+    let boxW = 0;
+    for (let c = c1; c <= c2; c++) boxW += colPx(ctx.ws.getColumn(c).width);
+    const rH = rowPx(rowH);
+    const boxH = rows * rH;
+    const offX = Math.max(0, (boxW - ext.width) / 2);
+    const offY = Math.max(0, (boxH - ext.height) / 2);
+    const rowsDown = Math.floor(offY / rH);
     ctx.ws.addImage(id, {
-      tl: { col: col - 1 + 0.06, row: row - 1 + 0.06 } as ExcelJSNS.Anchor,
+      tl: {
+        ...nativeColAnchor(ctx, c1 - 1, offX),
+        nativeRow: rTop - 1 + rowsDown,
+        nativeRowOff: Math.round((offY - rowsDown * rH) * EMU_PER_PX),
+      } as ExcelJSNS.Anchor,
       ext,
       editAs: 'oneCell',
     });
@@ -189,11 +234,12 @@ export async function buildFacilityReport(facilityId: string): Promise<Blob> {
     r++;
     const mapExt = fitInside(940, 580, MAP_BOX.w, MAP_BOX.h);
     const mapTop = r;
-    const mapRows = Math.ceil(mapExt.height / 16) + 1;
-    for (let k = 0; k < mapRows; k++) ws.getRow(r++).height = 16;
+    const mapRowH = 16;
+    const mapRows = Math.ceil(mapExt.height / rowPx(mapRowH)) + 1;
+    for (let k = 0; k < mapRows; k++) ws.getRow(r++).height = mapRowH;
     mergeRect(ctx, mapTop, 1, mapTop + mapRows - 1, lastCol);
     bordersRect(ctx, mapTop, 1, mapTop + mapRows - 1, lastCol);
-    addImg(ctx, mapUrl, 1, mapTop, mapExt);
+    placeImage(ctx, mapUrl, 1, lastCol, mapTop, mapRows, mapRowH, mapExt);
     r += 2;
   }
 
@@ -484,7 +530,7 @@ function renderPhotos(ctx: Ctx, startRow: number, photos: Photo[], categories: r
 
       const photo = byCat.get(categories[idx]);
       const ext = photo ? photoExt.get(photo.id) : undefined;
-      if (photo?.dataUrl && ext) addImg(ctx, photo.dataUrl, c1, boxTop, ext);
+      if (photo?.dataUrl && ext) placeImage(ctx, photo.dataUrl, c1, c2, boxTop, BOX_ROWS, ROW_PX, ext);
       else boxCell.value = '［ 사진 없음 ］';
 
       mergeRow(ctx, capRow, c1, c2);
