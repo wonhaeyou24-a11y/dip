@@ -1,4 +1,5 @@
 import { useLiveQuery } from 'dexie-react-hooks';
+import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import {
   createStation,
@@ -8,10 +9,14 @@ import {
   type DiscontinuitySet,
   type Station,
 } from '../db/db';
+import { downloadBlob, safeFilename } from '../lib/download';
+import { buildFacilityReport } from '../lib/excel/report';
 
 export function FacilityScreen() {
   const { fid = '' } = useParams();
   const navigate = useNavigate();
+  const [exporting, setExporting] = useState(false);
+  const [exportErr, setExportErr] = useState<string | null>(null);
 
   const facility = useLiveQuery(() => db.facilities.get(fid), [fid]);
   const stations = useLiveQuery(
@@ -32,6 +37,19 @@ export function FacilityScreen() {
   if (facility === null) return <p className="muted">시설물을 찾을 수 없습니다.</p>;
 
   const ordered = [...stations].sort((a, b) => a.createdAt - b.createdAt);
+
+  const exportExcel = async () => {
+    setExporting(true);
+    setExportErr(null);
+    try {
+      const blob = await buildFacilityReport(fid);
+      downloadBlob(blob, `${safeFilename(facility.name)}_불연속면조사.xlsx`);
+    } catch (e) {
+      setExportErr(e instanceof Error ? e.message : 'Excel 생성 실패');
+    } finally {
+      setExporting(false);
+    }
+  };
 
   return (
     <>
@@ -54,6 +72,15 @@ export function FacilityScreen() {
       >
         ＋ 측점 추가
       </button>
+
+      <div className="card">
+        <h2>결과보고</h2>
+        <button className="ghost" style={{ width: '100%' }} onClick={exportExcel} disabled={exporting || ordered.length === 0}>
+          {exporting ? 'Excel 생성 중…' : 'Excel 내보내기'}
+        </button>
+        {exportErr && <div className="warn" style={{ marginTop: 8 }}>{exportErr}</div>}
+        {ordered.length === 0 && <p className="muted" style={{ marginTop: 8 }}>측점을 먼저 추가하세요.</p>}
+      </div>
 
       <div className="card">
         <h2>측점 ({ordered.length})</h2>

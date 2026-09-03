@@ -25,11 +25,11 @@ npm run build      # dist/ 프로덕션 빌드 (PWA)
 
 ## 진행 상태
 
-- [x] STEP 1 데이터 구조 설계 (절리상태 설계 문서 §4)
-- [~] **STEP 2 주향·경사 측정 엔진** — 계산 로직 + 센서 래퍼 + 프로토타입 화면. **실기기 검증 필요**
-- [ ] STEP 3 현장조사 UI
-- [ ] STEP 4 오프라인 저장 (Dexie)
-- [ ] STEP 5 Excel 출력
+- [x] STEP 1 데이터 구조 설계 (`src/db/db.ts` — Facility→Station→Set→Condition)
+- [~] **STEP 2 주향·경사 측정 엔진** — 계산 로직 + 센서 래퍼 + `OrientationField`. **실기기 검증 필요**
+- [x] STEP 3 현장조사 UI (시설물/측점/절리군 화면, 절리상태 배점 폼, 사진)
+- [x] STEP 4 오프라인 저장 (Dexie 자동저장, PWA 오프라인, JSON 백업/복원)
+- [x] STEP 5 Excel 결과보고 출력 (`src/lib/excel/report.ts`, 시설물별 .xlsx + 사진)
 - [ ] STEP 6 기본 분석 (검토 후)
 - [ ] STEP 7 최종 보고서
 
