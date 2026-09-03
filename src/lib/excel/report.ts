@@ -247,14 +247,12 @@ function renderStation(
   rowBorders(r);
   r++;
 
+  // 반발경도·강도는 현장 입력 안 함 → 결과보고에 빈칸으로 출력 (담당자가 사무실에서 기입)
   const common: [string, string][] = [
-    ['반발경도', st.reboundHardness != null ? String(st.reboundHardness) : '-'],
-    ['강 도', st.wallStrength_MPa != null ? `${st.wallStrength_MPa}  MPa` : '-'],
+    ['반발경도', ''],
+    ['강 도', ''],
     ['누 수', st.seepage ? SEEPAGE_LABELS[st.seepage] : '-'],
-    [
-      '암괴크기',
-      st.blockSize ? `${st.blockSize.x}m × ${st.blockSize.y}m × ${st.blockSize.z}m` : '-',
-    ],
+    ['암괴크기', st.blockSize ? `${st.blockSize.x}m × ${st.blockSize.y}m × ${st.blockSize.z}m` : '-'],
   ];
   for (const [label, val] of common) {
     put(r, 1, label, { fill: FILL_HEAD });

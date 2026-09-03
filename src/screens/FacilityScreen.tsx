@@ -1,6 +1,8 @@
 import { useLiveQuery } from 'dexie-react-hooks';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
+import { StationMap } from '../components/StationMap';
+import { StickyBar, flushAndRun } from '../components/StickyBar';
 import {
   createStation,
   db,
@@ -9,6 +11,7 @@ import {
   type DiscontinuitySet,
   type Station,
 } from '../db/db';
+import { exportBackup, importBackup } from '../lib/backup';
 import { downloadBlob, safeFilename } from '../lib/download';
 import { buildFacilityReport } from '../lib/excel/report';
 
@@ -17,6 +20,9 @@ export function FacilityScreen() {
   const navigate = useNavigate();
   const [exporting, setExporting] = useState(false);
   const [exportErr, setExportErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [msg, setMsg] = useState<string | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
 
   const facility = useLiveQuery(() => db.facilities.get(fid), [fid]);
   const stations = useLiveQuery(
@@ -51,6 +57,33 @@ export function FacilityScreen() {
     }
   };
 
+  const doExport = async () => {
+    setBusy('export');
+    setMsg(null);
+    try {
+      const blob = await exportBackup();
+      downloadBlob(blob, `dip_백업_${new Date().toISOString().slice(0, 10)}.json`);
+      setMsg(`백업 완료 (${(blob.size / 1024 / 1024).toFixed(1)} MB)`);
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : '백업 실패');
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const doImport = async (file: File) => {
+    setBusy('import');
+    setMsg(null);
+    try {
+      const r = await importBackup(file);
+      setMsg(`복원 완료 · 시설물 ${r.facilities} · 측점 ${r.stations} · 절리군 ${r.sets} · 사진 ${r.photos}`);
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : '복원 실패');
+    } finally {
+      setBusy(null);
+    }
+  };
+
   return (
     <>
       <div className="card">
@@ -74,15 +107,6 @@ export function FacilityScreen() {
       </button>
 
       <div className="card">
-        <h2>결과보고</h2>
-        <button className="ghost" style={{ width: '100%' }} onClick={exportExcel} disabled={exporting || ordered.length === 0}>
-          {exporting ? 'Excel 생성 중…' : 'Excel 내보내기'}
-        </button>
-        {exportErr && <div className="warn" style={{ marginTop: 8 }}>{exportErr}</div>}
-        {ordered.length === 0 && <p className="muted" style={{ marginTop: 8 }}>측점을 먼저 추가하세요.</p>}
-      </div>
-
-      <div className="card">
         <h2>측점 ({ordered.length})</h2>
         {ordered.length === 0 && <p className="muted">측점을 추가하세요.</p>}
         <div className="list">
@@ -94,8 +118,7 @@ export function FacilityScreen() {
                   {s.location ? ` · ${s.location}` : ''}
                 </strong>
                 <span className="muted">
-                  절리군 {setCountByStation.get(s.id) ?? 0}개
-                  {s.gps ? ' · GPS ✓' : ''}
+                  절리군 {setCountByStation.get(s.id) ?? 0}개{s.gps ? ' · GPS ✓' : ' · GPS 없음'}
                 </span>
               </Link>
               <button
@@ -112,6 +135,58 @@ export function FacilityScreen() {
           ))}
         </div>
       </div>
+
+      <div className="card">
+        <h2>측점 위치</h2>
+        <StationMap facilityId={fid} stations={ordered} />
+      </div>
+
+      <div className="card">
+        <h2>결과보고 / 백업</h2>
+        <button
+          className="ghost"
+          style={{ width: '100%' }}
+          onClick={exportExcel}
+          disabled={exporting || ordered.length === 0}
+        >
+          {exporting ? 'Excel 생성 중…' : 'Excel 결과보고 내보내기'}
+        </button>
+        {exportErr && (
+          <div className="warn" style={{ marginTop: 8 }}>
+            {exportErr}
+          </div>
+        )}
+        <div className="btn-row" style={{ marginTop: 10 }}>
+          <button className="ghost" onClick={doExport} disabled={busy !== null}>
+            {busy === 'export' ? '내보내는 중…' : 'JSON 백업'}
+          </button>
+          <button className="ghost" onClick={() => fileRef.current?.click()} disabled={busy !== null}>
+            {busy === 'import' ? '복원 중…' : '백업 복원'}
+          </button>
+        </div>
+        <input
+          ref={fileRef}
+          type="file"
+          accept="application/json,.json"
+          hidden
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) void doImport(f);
+            e.target.value = '';
+          }}
+        />
+        {msg && (
+          <p className="muted" style={{ marginTop: 8 }}>
+            {msg}
+          </p>
+        )}
+      </div>
+
+      <StickyBar>
+        <button className="primary" onClick={() => flushAndRun(() => navigate('/'))}>
+          저장하고 시설물 목록
+        </button>
+      </StickyBar>
     </>
   );
 }

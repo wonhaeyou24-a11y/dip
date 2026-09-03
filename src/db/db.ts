@@ -11,6 +11,7 @@ import Dexie, { type EntityTable } from 'dexie';
 import type { Condition } from '../lib/scoring/condition';
 import type { SeepageClass, SpacingClass } from '../lib/scoring/condition';
 import { emptyCondition } from '../lib/scoring/condition';
+import { nextSetName, nextSiteId } from '../lib/labels';
 import type { MeasurementQuality, Orientation } from '../lib/sensors/orientation';
 
 export type DiscontinuityType = '절리' | '층리' | '단층' | '편리·엽리' | '기타';
@@ -162,7 +163,7 @@ export async function createStation(
   await db.stations.add({
     id,
     facilityId,
-    siteId: init.siteId ?? `Site-${String.fromCharCode(65 + count)}`,
+    siteId: init.siteId ?? nextSiteId(count),
     location: init.location ?? '',
     surveyor: init.surveyor ?? '',
     surveyedAt: now,
@@ -183,7 +184,7 @@ export async function createSet(stationId: string): Promise<string> {
     id,
     stationId,
     facilityId: station.facilityId,
-    name: `Set ${count + 1}`,
+    name: nextSetName(count),
     order: count,
     dtype: '절리',
     orientation: null,
@@ -203,6 +204,26 @@ export async function updateStation(id: string, patch: Partial<Station>): Promis
 }
 export async function updateSet(id: string, patch: Partial<DiscontinuitySet>): Promise<void> {
   await db.sets.update(id, { ...patch, updatedAt: Date.now() });
+}
+
+/** 같은 측점의 직전 절리군에서 종류·간격·절리상태를 복사 (방향성은 제외). */
+export async function copyPreviousSet(setId: string): Promise<boolean> {
+  const cur = await db.sets.get(setId);
+  if (!cur) return false;
+  const siblings = await db.sets.where('stationId').equals(cur.stationId).sortBy('order');
+  const idx = siblings.findIndex((s) => s.id === setId);
+  const prev = idx > 0 ? siblings[idx - 1] : undefined;
+  if (!prev) return false;
+  await updateSet(setId, {
+    dtype: prev.dtype,
+    spacing: prev.spacing,
+    spacing_min_m: prev.spacing_min_m,
+    spacing_max_m: prev.spacing_max_m,
+    spacing_mode_m: prev.spacing_mode_m,
+    condition: { ...prev.condition },
+    note: prev.note,
+  });
+  return true;
 }
 
 export async function deleteFacilityCascade(facilityId: string): Promise<void> {

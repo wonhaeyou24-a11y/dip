@@ -61,7 +61,7 @@ body {
 .app-body {
   flex: 1;
   padding: 16px;
-  padding-bottom: calc(16px + env(safe-area-inset-bottom));
+  padding-bottom: calc(104px + env(safe-area-inset-bottom));
   display: flex;
   flex-direction: column;
   gap: 16px;
@@ -429,4 +429,58 @@ button.ghost {
 .photo-cap .link-danger {
   font-size: 11px;
   padding: 2px 4px;
+}
+
+/* sticky bottom action bar */
+.sticky-bar {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: 0;
+  width: min(520px, 100%);
+  padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  display: flex;
+  gap: 10px;
+  z-index: 30;
+}
+.sticky-bar > button {
+  flex: 1;
+  font-size: 16px;
+}
+
+/* breadcrumb */
+.crumb {
+  margin: -4px 0 0;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--accent);
+  letter-spacing: 0.03em;
+}
+
+/* map */
+.map {
+  height: 260px;
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--bg);
+}
+.map-pin span {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 800;
+  font-size: 12px;
+  border: 2px solid #fff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+}
+.leaflet-container {
+  background: var(--surface-2);
+  font: inherit;
 }

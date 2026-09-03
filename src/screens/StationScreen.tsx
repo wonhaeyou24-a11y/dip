@@ -1,7 +1,8 @@
 import { useLiveQuery } from 'dexie-react-hooks';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { PhotoGrid } from '../components/PhotoGrid';
+import { StickyBar, flushAndRun } from '../components/StickyBar';
 import {
   createSet,
   db,
@@ -11,6 +12,7 @@ import {
   type Station,
 } from '../db/db';
 import { formatGps, getCurrentGps } from '../lib/geo';
+import { SITE_IDS } from '../lib/labels';
 import { formatDipDipDir } from '../lib/sensors/orientation';
 import { SEEPAGE_CLASSES, SEEPAGE_LABELS, type SeepageClass } from '../lib/scoring/condition';
 
@@ -26,16 +28,9 @@ export function StationScreen() {
   );
   const [gpsBusy, setGpsBusy] = useState(false);
   const [gpsErr, setGpsErr] = useState<string | null>(null);
-
-  if (station === undefined) return <p className="muted">불러오는 중…</p>;
-  if (station === null) return <p className="muted">측점을 찾을 수 없습니다.</p>;
-  const st: Station = station;
+  const gpsTried = useRef(false);
 
   const save = (patch: Partial<Station>) => updateStation(sid, patch);
-  const num = (v: string): number | undefined => {
-    const n = parseFloat(v);
-    return Number.isFinite(n) ? n : undefined;
-  };
 
   const captureGps = async () => {
     setGpsBusy(true);
@@ -50,14 +45,40 @@ export function StationScreen() {
     }
   };
 
+  // 측점 생성 직후: 현위치 GPS 자동 저장 (1회)
+  useEffect(() => {
+    if (!station || gpsTried.current) return;
+    gpsTried.current = true;
+    if (!station.gps) void captureGps();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [station]);
+
+  if (station === undefined) return <p className="muted">불러오는 중…</p>;
+  if (station === null) return <p className="muted">측점을 찾을 수 없습니다.</p>;
+  const st: Station = station;
+
+  const num = (v: string): number | undefined => {
+    const n = parseFloat(v);
+    return Number.isFinite(n) ? n : undefined;
+  };
+
   return (
     <>
+      <p className="crumb">{st.siteId}</p>
+
       <div className="card">
         <h2>측점 정보</h2>
         <div className="form-grid">
           <label>
             Site ID
-            <input defaultValue={st.siteId} onBlur={(e) => save({ siteId: e.target.value.trim() || st.siteId })} />
+            <select value={st.siteId} onChange={(e) => save({ siteId: e.target.value })}>
+              {SITE_IDS.map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+              {!SITE_IDS.includes(st.siteId) && <option value={st.siteId}>{st.siteId}</option>}
+            </select>
           </label>
           <label>
             위치 설명
@@ -78,71 +99,6 @@ export function StationScreen() {
               defaultValue={toDateInput(st.surveyedAt)}
               onBlur={(e) => save({ surveyedAt: fromDateInput(e.target.value, st.surveyedAt) })}
             />
-          </label>
-        </div>
-      </div>
-
-      <div className="card">
-        <h2>위치 (GPS)</h2>
-        <p className="muted">{formatGps(st.gps)}</p>
-        {gpsErr && <div className="warn">{gpsErr}</div>}
-        <button className="ghost" onClick={captureGps} disabled={gpsBusy} style={{ marginTop: 8, width: '100%' }}>
-          {gpsBusy ? '측정 중…' : st.gps ? 'GPS 다시 측정' : 'GPS 측정'}
-        </button>
-      </div>
-
-      <div className="card">
-        <h2>측점 공통 (강도·누수·암괴크기)</h2>
-        <div className="form-grid">
-          <label>
-            반발경도 R
-            <input
-              type="number"
-              inputMode="decimal"
-              defaultValue={st.reboundHardness ?? ''}
-              onBlur={(e) => save({ reboundHardness: num(e.target.value) })}
-            />
-          </label>
-          <label>
-            강도 (MPa)
-            <input
-              type="number"
-              inputMode="decimal"
-              defaultValue={st.wallStrength_MPa ?? ''}
-              onBlur={(e) => save({ wallStrength_MPa: num(e.target.value) })}
-            />
-          </label>
-          <label>
-            누수 상태
-            <select
-              value={st.seepage ?? ''}
-              onChange={(e) => save({ seepage: (e.target.value || null) as SeepageClass | null })}
-            >
-              <option value="">선택</option>
-              {SEEPAGE_CLASSES.map((c) => (
-                <option key={c} value={c}>
-                  {SEEPAGE_LABELS[c]}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            암괴크기 (m, x×y×z)
-            <span className="triple">
-              {(['x', 'y', 'z'] as const).map((k) => (
-                <input
-                  key={k}
-                  type="number"
-                  inputMode="decimal"
-                  placeholder={k}
-                  defaultValue={st.blockSize?.[k] ?? ''}
-                  onBlur={(e) => {
-                    const cur = st.blockSize ?? { x: 0, y: 0, z: 0 };
-                    save({ blockSize: { ...cur, [k]: num(e.target.value) ?? 0 } });
-                  }}
-                />
-              ))}
-            </span>
           </label>
         </div>
       </div>
@@ -189,6 +145,67 @@ export function StationScreen() {
         <h2>조사 사진</h2>
         <PhotoGrid facilityId={fid} stationId={sid} />
       </div>
+
+      <div className="card">
+        <h2>측점 공통</h2>
+        <div className="form-grid">
+          <label>
+            누수 상태
+            <select
+              value={st.seepage ?? ''}
+              onChange={(e) => save({ seepage: (e.target.value || null) as SeepageClass | null })}
+            >
+              <option value="">선택</option>
+              {SEEPAGE_CLASSES.map((c) => (
+                <option key={c} value={c}>
+                  {SEEPAGE_LABELS[c]}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            암괴크기 (m, x×y×z)
+            <span className="triple">
+              {(['x', 'y', 'z'] as const).map((k) => (
+                <input
+                  key={k}
+                  type="number"
+                  inputMode="decimal"
+                  placeholder={k}
+                  defaultValue={st.blockSize?.[k] ?? ''}
+                  onBlur={(e) => {
+                    const cur = st.blockSize ?? { x: 0, y: 0, z: 0 };
+                    save({ blockSize: { ...cur, [k]: num(e.target.value) ?? 0 } });
+                  }}
+                />
+              ))}
+            </span>
+          </label>
+        </div>
+        <p className="muted" style={{ marginTop: 8 }}>
+          반발경도·강도는 현장에서 입력하지 않습니다 (결과보고에 빈칸으로 출력).
+        </p>
+      </div>
+
+      <div className="card">
+        <h2>위치 (GPS)</h2>
+        <p className="muted">{gpsBusy ? '측정 중…' : formatGps(st.gps)}</p>
+        {gpsErr && <div className="warn">{gpsErr}</div>}
+        <button
+          className="ghost"
+          onClick={captureGps}
+          disabled={gpsBusy}
+          style={{ marginTop: 8, width: '100%' }}
+        >
+          {st.gps ? 'GPS 다시 측정' : 'GPS 측정'}
+        </button>
+      </div>
+
+      <StickyBar>
+        <button className="primary" onClick={() => flushAndRun(() => navigate(`/f/${fid}`))}>
+          저장하고 측점 목록
+        </button>
+      </StickyBar>
     </>
   );
 }
