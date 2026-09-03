@@ -2,9 +2,10 @@
  * 결과보고 Excel — 시설물 1개 = 파일 1개 = 시트 1개.
  *
  * 구성:
- *   1) 조사점 위치도 (시트 최상단)
- *   2) 측점별 "불연속면 특성" 표 (세로로 이어 정리) + 조사사진
- *   3) 토양경도 조사 표 (상세절리조사 다음)
+ *   1) 조사점 위치도 (시트 최상단, 실제 지도)
+ *   2) 측점별 "불연속면 특성" 표 + 조사사진(원본 비율 유지)
+ *   3) 반발경도 조사 (측정값 4행×5열)
+ *   4) 토양경도 조사 (측정값 1행×10열)
  */
 
 import type ExcelJSNS from 'exceljs';
@@ -14,15 +15,15 @@ import {
   db,
   type DiscontinuitySet,
   type Facility,
+  type Gps,
   type Photo,
   type SoilPoint,
   type Station,
 } from '../../db/db';
-import { dataUrlExtension, dataUrlToUint8Array } from '../image';
+import { dataUrlExtension, dataUrlToUint8Array, fitInside, imageSize } from '../image';
 import { markerLabel, valueStats } from '../labels';
 import { captureMapImage } from '../leafletMap';
 import type { MapPoint } from '../mapImage';
-import type { Gps } from '../../db/db';
 import {
   CONDITION_ITEMS,
   ITEM_LABELS,
@@ -56,6 +57,68 @@ const bandText = (stage: Stage) => {
 
 type StationFull = Station & { sets: DiscontinuitySet[]; photos: Photo[] };
 type SoilFull = SoilPoint & { photos: Photo[] };
+type Ext = { width: number; height: number };
+
+const PHOTO_BOX = { w: 300, h: 200 };
+const MAP_BOX = { w: 780, h: 470 };
+const ROW_PX = 18;
+
+interface Ctx {
+  ws: ExcelJSNS.Worksheet;
+  wb: ExcelJSNS.Workbook;
+  lastCol: number;
+  photoExt: Map<string, Ext>;
+}
+
+function put(
+  ctx: Ctx,
+  r: number,
+  c: number,
+  val: ExcelJSNS.CellValue,
+  o: { fill?: ExcelJSNS.FillPattern; bold?: boolean; color?: string; left?: boolean } = {},
+) {
+  const cell = ctx.ws.getCell(r, c);
+  cell.value = val;
+  cell.border = BORDER;
+  cell.alignment = o.left ? { ...CENTER, horizontal: 'left', indent: 1 } : CENTER;
+  if (o.fill) cell.fill = o.fill;
+  if (o.bold || o.color) cell.font = { bold: o.bold, color: o.color ? { argb: o.color } : undefined };
+}
+function mergeRow(ctx: Ctx, r: number, c1: number, c2: number) {
+  if (c2 > c1) ctx.ws.mergeCells(r, c1, r, c2);
+}
+function mergeRect(ctx: Ctx, r1: number, c1: number, r2: number, c2: number) {
+  ctx.ws.mergeCells(r1, c1, r2, c2);
+}
+function fillRow(ctx: Ctx, r: number) {
+  for (let c = 1; c <= ctx.lastCol; c++)
+    if (!ctx.ws.getCell(r, c).border) ctx.ws.getCell(r, c).border = BORDER;
+}
+function bordersRect(ctx: Ctx, r1: number, c1: number, r2: number, c2: number) {
+  for (let rr = r1; rr <= r2; rr++)
+    for (let cc = c1; cc <= c2; cc++) ctx.ws.getCell(rr, cc).border = BORDER;
+}
+function addImg(ctx: Ctx, dataUrl: string, col: number, row: number, ext: Ext) {
+  if (!dataUrl) return;
+  try {
+    const id = ctx.wb.addImage({
+      buffer: dataUrlToUint8Array(dataUrl) as unknown as ExcelJSNS.Buffer,
+      extension: dataUrlExtension(dataUrl),
+    });
+    ctx.ws.addImage(id, {
+      tl: { col: col - 1 + 0.06, row: row - 1 + 0.06 } as ExcelJSNS.Anchor,
+      ext,
+      editAs: 'oneCell',
+    });
+  } catch {
+    /* ignore */
+  }
+}
+function sectionTitle(ctx: Ctx, r: number, text: string) {
+  mergeRow(ctx, r, 1, ctx.lastCol);
+  put(ctx, r, 1, text, { fill: FILL_HEAD, bold: true, left: true });
+  fillRow(ctx, r);
+}
 
 export async function buildFacilityReport(facilityId: string): Promise<Blob> {
   const { default: ExcelJS } = await import('exceljs');
@@ -81,6 +144,18 @@ export async function buildFacilityReport(facilityId: string): Promise<Blob> {
     })),
   );
 
+  // 사진 실제 크기 → 박스에 비율 유지하며 맞춤
+  const photoExt = new Map<string, Ext>();
+  const allPhotos = [...stations.flatMap((s) => s.photos), ...soils.flatMap((s) => s.photos)].filter(
+    (p) => p.dataUrl,
+  );
+  await Promise.all(
+    allPhotos.map(async (p) => {
+      const { w, h } = await imageSize(p.dataUrl);
+      photoExt.set(p.id, fitInside(w, h, PHOTO_BOX.w, PHOTO_BOX.h));
+    }),
+  );
+
   const wb = new ExcelJS.Workbook();
   wb.creator = 'DiscontinuityShot';
   const ws = wb.addWorksheet(sanitizeSheetName(facility.name), {
@@ -89,135 +164,93 @@ export async function buildFacilityReport(facilityId: string): Promise<Blob> {
   });
 
   const maxSets = Math.max(2, ...stations.map((s) => s.sets.length || 0));
-  const lastCol = 1 + maxSets * 3;
-  ws.getColumn(1).width = 13;
-  for (let i = 0; i < maxSets; i++) {
-    ws.getColumn(2 + i * 3).width = 17;
-    ws.getColumn(3 + i * 3).width = 8;
-    ws.getColumn(4 + i * 3).width = 6;
-  }
+  const lastCol = Math.max(11, 1 + maxSets * 3);
+  ws.getColumn(1).width = 12;
+  for (let c = 2; c <= lastCol; c++) ws.getColumn(c).width = 8.6;
+  for (let i = 0; i < maxSets; i++) ws.getColumn(2 + i * 3).width = 13;
 
-  const merge = (r: number, c1: number, c2: number) => {
-    if (c2 > c1) ws.mergeCells(r, c1, r, c2);
-  };
-  const putCell = (
-    r: number,
-    c: number,
-    val: ExcelJSNS.CellValue,
-    o: { fill?: ExcelJSNS.FillPattern; bold?: boolean; color?: string; left?: boolean } = {},
-  ) => {
-    const cell = ws.getCell(r, c);
-    cell.value = val;
-    cell.border = BORDER;
-    cell.alignment = o.left ? { ...CENTER, horizontal: 'left', indent: 1 } : CENTER;
-    if (o.fill) cell.fill = o.fill;
-    if (o.bold || o.color) cell.font = { bold: o.bold, color: o.color ? { argb: o.color } : undefined };
-  };
-  const fillRow = (r: number) => {
-    for (let c = 1; c <= lastCol; c++) if (!ws.getCell(r, c).border) ws.getCell(r, c).border = BORDER;
-  };
-  const cellRef = (col: number, row: number) => `${ws.getColumn(col).letter}${row}`;
-  /** 셀 범위(c1,r1)~(c2,r2) 에 이미지 앵커 — 문자열 range 방식이 가장 안정적 */
-  const addImg = (dataUrl: string, c1: number, r1: number, c2: number, r2: number) => {
-    if (!dataUrl) return;
-    try {
-      const id = wb.addImage({
-        buffer: dataUrlToUint8Array(dataUrl) as unknown as ExcelJSNS.Buffer,
-        extension: dataUrlExtension(dataUrl),
-      });
-      ws.addImage(id, `${cellRef(c1, r1)}:${cellRef(c2, r2)}`);
-    } catch {
-      /* ignore */
-    }
-  };
-
+  const ctx: Ctx = { ws, wb, lastCol, photoExt };
   let r = 1;
 
   // ── 1) 조사점 위치도 ──
   const mapPoints: MapPoint[] = [
     ...stations
       .filter((s) => s.gps)
-      .map((s) => ({
-        id: s.id,
-        label: markerLabel(s.siteId),
-        lat: s.gps!.lat,
-        lon: s.gps!.lon,
-        kind: 'station' as const,
-      })),
+      .map((s) => ({ id: s.id, label: markerLabel(s.siteId), lat: s.gps!.lat, lon: s.gps!.lon, kind: 'station' as const })),
     ...soils
       .filter((s) => s.gps)
-      .map((s) => ({
-        id: s.id,
-        label: markerLabel(s.pointId),
-        lat: s.gps!.lat,
-        lon: s.gps!.lon,
-        kind: 'soil' as const,
-      })),
+      .map((s) => ({ id: s.id, label: markerLabel(s.pointId), lat: s.gps!.lat, lon: s.gps!.lon, kind: 'soil' as const })),
   ];
   const mapUrl = await captureMapImage(mapPoints, 940, 580);
   if (mapUrl) {
-    merge(r, 1, lastCol);
-    putCell(r, 1, `${facility.name} — 조사점 위치도`, { fill: FILL_HEAD, bold: true });
-    fillRow(r);
+    mergeRow(ctx, r, 1, lastCol);
+    put(ctx, r, 1, `${facility.name} — 조사점 위치도`, { fill: FILL_HEAD, bold: true });
+    fillRow(ctx, r);
     r++;
+    const mapExt = fitInside(940, 580, MAP_BOX.w, MAP_BOX.h);
     const mapTop = r;
-    const mapRows = 24;
-    for (let k = 0; k < mapRows; k++) {
-      ws.getRow(r).height = 16;
-      r++;
-    }
-    ws.mergeCells(mapTop, 1, mapTop + mapRows - 1, lastCol);
-    for (let rr = mapTop; rr < mapTop + mapRows; rr++)
-      for (let cc = 1; cc <= lastCol; cc++) ws.getCell(rr, cc).border = BORDER;
-    addImg(mapUrl, 1, mapTop, lastCol, mapTop + mapRows - 1);
+    const mapRows = Math.ceil(mapExt.height / 16) + 1;
+    for (let k = 0; k < mapRows; k++) ws.getRow(r++).height = 16;
+    mergeRect(ctx, mapTop, 1, mapTop + mapRows - 1, lastCol);
+    bordersRect(ctx, mapTop, 1, mapTop + mapRows - 1, lastCol);
+    addImg(ctx, mapUrl, 1, mapTop, mapExt);
     r += 2;
   }
 
-  const helpers: Helpers = { merge, putCell, fillRow, addImg };
-
   // ── 2) 측점별 불연속면 특성 ──
-  for (const st of stations) {
-    r = renderStation(ws, r, facility, st, lastCol, helpers) + 2;
-  }
+  for (const st of stations) r = renderStation(ctx, r, facility, st) + 2;
 
-  // ── 3) 반발경도 조사 (토양경도 위) ──
+  // ── 3) 반발경도 조사 (4행×5열) ──
   const withRebound = stations.filter(
     (s) => (s.reboundValues ?? []).filter((x) => Number.isFinite(x)).length > 0,
   );
   if (withRebound.length > 0) {
-    merge(r, 1, lastCol);
-    putCell(r, 1, '반발경도 조사', { fill: FILL_HEAD, bold: true, left: true });
-    fillRow(r);
-    r += 1;
+    sectionTitle(ctx, r++, '반발경도 조사');
     for (const st of withRebound) {
       r =
-        renderValueBlock(
+        renderValueGrid(
+          ctx,
           r,
           `반발경도 (${st.siteId})${st.location ? ` : ${st.location}` : ''}`,
           st.gps,
           st.reboundValues ?? [],
           20,
-          lastCol,
-          helpers,
+          5,
         ) + 1;
     }
     r += 1;
   }
 
-  // ── 4) 토양경도 조사 ──
+  // ── 4) 토양경도 조사 (1행×10열) ──
   if (soils.length > 0) {
-    merge(r, 1, lastCol);
-    putCell(r, 1, '토양경도 조사', { fill: FILL_HEAD, bold: true, left: true });
-    fillRow(r);
-    r += 1;
+    sectionTitle(ctx, r++, '토양경도 조사');
     for (const sp of soils) {
-      r = renderSoil(ws, r, facility, sp, lastCol, helpers) + 2;
+      mergeRow(ctx, r, 1, lastCol);
+      put(
+        ctx,
+        r,
+        1,
+        sp.location ? `토양경도 (${sp.pointId}) : ${sp.location}` : `토양경도 (${sp.pointId})`,
+        { fill: FILL_HEAD, bold: true },
+      );
+      ws.getRow(r).height = 18;
+      r++;
+      mergeRow(ctx, r, 1, lastCol);
+      put(
+        ctx,
+        r,
+        1,
+        `시설물: ${facility.name}    |    조사자: ${sp.surveyor || '-'}    |    조사일: ${new Date(
+          sp.surveyedAt,
+        ).toLocaleDateString('ko-KR')}`,
+      );
+      r++;
+      r = renderGridBody(ctx, r, sp.gps, sp.hardnessValues ?? [], 10, 10);
+      r = renderPhotos(ctx, r, sp.photos, SOIL_PHOTO_CATEGORIES) + 2;
     }
   }
 
-  if (stations.length === 0 && soils.length === 0) {
-    ws.getCell(r, 1).value = '조사 데이터가 없습니다.';
-  }
+  if (stations.length === 0 && soils.length === 0) ws.getCell(r, 1).value = '조사 데이터가 없습니다.';
 
   const buf = await wb.xlsx.writeBuffer();
   return new Blob([buf], {
@@ -225,83 +258,92 @@ export async function buildFacilityReport(facilityId: string): Promise<Blob> {
   });
 }
 
-interface Helpers {
-  merge: (r: number, c1: number, c2: number) => void;
-  putCell: (
-    r: number,
-    c: number,
-    val: ExcelJSNS.CellValue,
-    o?: { fill?: ExcelJSNS.FillPattern; bold?: boolean; color?: string; left?: boolean },
-  ) => void;
-  fillRow: (r: number) => void;
-  addImg: (dataUrl: string, c1: number, r1: number, c2: number, r2: number) => void;
+/** GPS 행 + 값 그리드 + 통계 행 */
+function renderGridBody(
+  ctx: Ctx,
+  startRow: number,
+  gps: Gps | undefined,
+  values: number[],
+  target: number,
+  cols: number,
+): number {
+  let r = startRow;
+  const stat = valueStats(values);
+
+  put(ctx, r, 1, 'GPS', { fill: FILL_HEAD });
+  mergeRow(ctx, r, 2, ctx.lastCol);
+  put(ctx, r, 2, gps ? `${gps.lat.toFixed(6)}, ${gps.lon.toFixed(6)}` : '-', { left: true });
+  fillRow(ctx, r);
+  r++;
+
+  const gridRows = Math.ceil(target / cols);
+  const gridTop = r;
+  for (let gr = 0; gr < gridRows; gr++) {
+    for (let gc = 0; gc < cols; gc++) {
+      const i = gr * cols + gc;
+      const v = i < values.length && Number.isFinite(values[i]) ? values[i] : '';
+      put(ctx, gridTop + gr, 2 + gc, v as ExcelJSNS.CellValue, { bold: true });
+    }
+    for (let c = 2 + cols; c <= ctx.lastCol; c++) put(ctx, gridTop + gr, c, '');
+  }
+  put(ctx, gridTop, 1, '측정값', { fill: FILL_HEAD });
+  if (gridRows > 1) {
+    for (let gr = 1; gr < gridRows; gr++) put(ctx, gridTop + gr, 1, '', { fill: FILL_HEAD });
+    mergeRect(ctx, gridTop, 1, gridTop + gridRows - 1, 1);
+    ctx.ws.getCell(gridTop, 1).alignment = CENTER;
+  }
+  r = gridTop + gridRows;
+
+  put(ctx, r, 1, '통계', { fill: FILL_HEAD });
+  mergeRow(ctx, r, 2, ctx.lastCol);
+  put(
+    ctx,
+    r,
+    2,
+    stat.n > 0 ? `평균 ${stat.mean} · 최소 ${stat.min} · 최대 ${stat.max} (${stat.n}/${target})` : '-',
+    { left: true },
+  );
+  fillRow(ctx, r);
+  return r + 1;
 }
 
-/** 측정값 목록 블록 (반발경도 20 / 토양경도 10 공용) */
-function renderValueBlock(
+function renderValueGrid(
+  ctx: Ctx,
   startRow: number,
   title: string,
   gps: Gps | undefined,
   values: number[],
   target: number,
-  lastCol: number,
-  h: Helpers,
+  cols: number,
 ): number {
-  const { merge, putCell: put, fillRow } = h;
-  let r = startRow;
-  const stat = valueStats(values);
-  const list = values.filter((x) => Number.isFinite(x)).join(', ');
-
-  merge(r, 1, lastCol);
-  put(r, 1, title, { fill: FILL_HEAD, bold: true });
-  fillRow(r);
-  r++;
-
-  const rows: [string, string][] = [
-    ['GPS', gps ? `${gps.lat.toFixed(6)}, ${gps.lon.toFixed(6)}` : '-'],
-    ['측정값', list || '-'],
-    [
-      '통계',
-      stat.n > 0
-        ? `평균 ${stat.mean} · 최소 ${stat.min} · 최대 ${stat.max} (${stat.n}/${target})`
-        : '-',
-    ],
-  ];
-  for (const [label, val] of rows) {
-    put(r, 1, label, { fill: FILL_HEAD });
-    merge(r, 2, lastCol);
-    put(r, 2, val, { left: true });
-    fillRow(r);
-    r++;
-  }
-  return r;
+  mergeRow(ctx, startRow, 1, ctx.lastCol);
+  put(ctx, startRow, 1, title, { fill: FILL_HEAD, bold: true });
+  fillRow(ctx, startRow);
+  return renderGridBody(ctx, startRow + 1, gps, values, target, cols);
 }
 
-function renderStation(
-  ws: ExcelJSNS.Worksheet,
-  startRow: number,
-  facility: Facility,
-  st: StationFull,
-  lastCol: number,
-  h: Helpers,
-): number {
+function renderStation(ctx: Ctx, startRow: number, facility: Facility, st: StationFull): number {
+  const { ws, lastCol } = ctx;
   const first = 2;
   const setCols = (i: number) => ({ l: first + i * 3, m: first + i * 3 + 1, r: first + i * 3 + 2 });
   const colL = (n: number) => ws.getColumn(n).letter;
-  const { merge, putCell: put, fillRow: rowBorders } = h;
   const sets = st.sets;
   let r = startRow;
 
-  merge(r, 1, lastCol);
-  put(r, 1, st.location ? `불연속면 특성 (${st.siteId}) : ${st.location}` : `불연속면 특성 (${st.siteId})`, {
-    fill: FILL_HEAD,
-    bold: true,
-  });
+  mergeRow(ctx, r, 1, lastCol);
+  put(
+    ctx,
+    r,
+    1,
+    st.location ? `불연속면 특성 (${st.siteId}) : ${st.location}` : `불연속면 특성 (${st.siteId})`,
+    { fill: FILL_HEAD, bold: true },
+  );
   ws.getRow(r).height = 22;
   r++;
 
-  merge(r, 1, lastCol);
+  mergeRow(ctx, r, 1, lastCol);
   put(
+    ctx,
     r,
     1,
     `시설물: ${facility.name}    |    조사자: ${st.surveyor || '-'}    |    조사일: ${new Date(
@@ -310,23 +352,23 @@ function renderStation(
   );
   r++;
 
-  put(r, 1, '구 성', { fill: FILL_HEAD, bold: true });
+  put(ctx, r, 1, '구 성', { fill: FILL_HEAD, bold: true });
   sets.forEach((s, i) => {
     const c = setCols(i);
-    merge(r, c.l, c.r);
-    put(r, c.l, s.name, { fill: FILL_HEAD, bold: true });
+    mergeRow(ctx, r, c.l, c.r);
+    put(ctx, r, c.l, s.name, { fill: FILL_HEAD, bold: true });
   });
-  rowBorders(r);
+  fillRow(ctx, r);
   r++;
 
   const simpleRow = (label: string, val: (s: DiscontinuitySet) => string, color?: string) => {
-    put(r, 1, label, { fill: FILL_HEAD });
+    put(ctx, r, 1, label, { fill: FILL_HEAD });
     sets.forEach((s, i) => {
       const c = setCols(i);
-      merge(r, c.l, c.r);
-      put(r, c.l, val(s), { color, bold: !!color });
+      mergeRow(ctx, r, c.l, c.r);
+      put(ctx, r, c.l, val(s), { color, bold: !!color });
     });
-    rowBorders(r);
+    fillRow(ctx, r);
     r++;
   };
   simpleRow('종 류', (s) => s.dtype);
@@ -335,60 +377,61 @@ function renderStation(
 
   const scoreStart = r;
   CONDITION_ITEMS.forEach((key) => {
-    put(r, 1, ITEM_NAMES[key], { fill: FILL_HEAD, left: true });
+    put(ctx, r, 1, ITEM_NAMES[key], { fill: FILL_HEAD, left: true });
     sets.forEach((s, i) => {
       const c = setCols(i);
       const item = s.condition[key as ConditionItemKey];
       if (item) {
-        put(r, c.l, ITEM_LABELS[key][item.stage - 1], { fill: FILL_LABEL });
-        put(r, c.m, bandText(item.stage as Stage));
-        put(r, c.r, item.score, { fill: FILL_SCORE, bold: true });
+        put(ctx, r, c.l, ITEM_LABELS[key][item.stage - 1], { fill: FILL_LABEL });
+        put(ctx, r, c.m, bandText(item.stage as Stage));
+        put(ctx, r, c.r, item.score, { fill: FILL_SCORE, bold: true });
       } else {
-        put(r, c.l, '-', { fill: FILL_LABEL });
-        put(r, c.m, '');
-        put(r, c.r, '', { fill: FILL_SCORE });
+        put(ctx, r, c.l, '-', { fill: FILL_LABEL });
+        put(ctx, r, c.m, '');
+        put(ctx, r, c.r, '', { fill: FILL_SCORE });
       }
     });
-    rowBorders(r);
+    fillRow(ctx, r);
     r++;
   });
   const scoreEnd = r - 1;
   const evals = sets.map((s) => evaluateCondition(s.condition));
 
-  put(r, 1, '', { fill: FILL_HEAD });
+  put(ctx, r, 1, '', { fill: FILL_HEAD });
   sets.forEach((_s, i) => {
     const c = setCols(i);
-    merge(r, c.l, c.m);
-    put(r, c.l, '합 계', { fill: FILL_HEAD });
+    mergeRow(ctx, r, c.l, c.m);
+    put(ctx, r, c.l, '합 계', { fill: FILL_HEAD });
     put(
+      ctx,
       r,
       c.r,
       { formula: `SUM(${colL(c.r)}${scoreStart}:${colL(c.r)}${scoreEnd})`, result: evals[i].sum },
       { bold: true },
     );
   });
-  rowBorders(r);
+  fillRow(ctx, r);
   const sumRow = r;
   r++;
 
-  put(r, 1, '', { fill: FILL_HEAD });
+  put(ctx, r, 1, '', { fill: FILL_HEAD });
   sets.forEach((_s, i) => {
     const c = setCols(i);
-    merge(r, c.l, c.m);
-    put(r, c.l, '산술평균', { fill: FILL_HEAD });
-    put(r, c.r, { formula: `ROUND(${colL(c.r)}${sumRow}/5,1)`, result: evals[i].mean });
+    mergeRow(ctx, r, c.l, c.m);
+    put(ctx, r, c.l, '산술평균', { fill: FILL_HEAD });
+    put(ctx, r, c.r, { formula: `ROUND(${colL(c.r)}${sumRow}/5,1)`, result: evals[i].mean });
     ws.getCell(r, c.r).numFmt = '0.0';
   });
-  rowBorders(r);
+  fillRow(ctx, r);
   r++;
 
-  put(r, 1, '절리상태점수', { fill: FILL_HEAD, bold: true });
+  put(ctx, r, 1, '절리상태점수', { fill: FILL_HEAD, bold: true });
   sets.forEach((_s, i) => {
     const c = setCols(i);
-    merge(r, c.l, c.r);
-    put(r, c.l, `${evals[i].sum}/5 = ${evals[i].mean.toFixed(1)} → ${evals[i].score}`, { bold: true });
+    mergeRow(ctx, r, c.l, c.r);
+    put(ctx, r, c.l, `${evals[i].sum}/5 = ${evals[i].mean.toFixed(1)} → ${evals[i].score}`, { bold: true });
   });
-  rowBorders(r);
+  fillRow(ctx, r);
   r++;
 
   const rb = valueStats(st.reboundValues ?? []);
@@ -399,77 +442,21 @@ function renderStation(
     ['암괴크기', st.blockSize ? `${st.blockSize.x}m × ${st.blockSize.y}m × ${st.blockSize.z}m` : '-'],
   ];
   for (const [label, val] of common) {
-    put(r, 1, label, { fill: FILL_HEAD });
-    merge(r, first, lastCol);
-    put(r, first, val);
-    rowBorders(r);
+    put(ctx, r, 1, label, { fill: FILL_HEAD });
+    mergeRow(ctx, r, first, lastCol);
+    put(ctx, r, first, val);
+    fillRow(ctx, r);
     r++;
   }
 
-  r = renderPhotos(ws, r, st.photos, STATION_PHOTO_CATEGORIES, lastCol, h);
-  return r;
+  return renderPhotos(ctx, r, st.photos, STATION_PHOTO_CATEGORIES);
 }
 
-function renderSoil(
-  ws: ExcelJSNS.Worksheet,
-  startRow: number,
-  facility: Facility,
-  sp: SoilFull,
-  lastCol: number,
-  h: Helpers,
-): number {
-  const { merge, putCell: put, fillRow } = h;
-  let r = startRow;
-
-  merge(r, 1, lastCol);
-  put(r, 1, sp.location ? `토양경도 (${sp.pointId}) : ${sp.location}` : `토양경도 (${sp.pointId})`, {
-    fill: FILL_HEAD,
-    bold: true,
-  });
-  ws.getRow(r).height = 20;
-  r++;
-
-  merge(r, 1, lastCol);
-  put(
-    r,
-    1,
-    `시설물: ${facility.name}    |    조사자: ${sp.surveyor || '-'}    |    조사일: ${new Date(
-      sp.surveyedAt,
-    ).toLocaleDateString('ko-KR')}`,
-  );
-  r++;
-
-  const st = valueStats(sp.hardnessValues ?? []);
-  const vals = (sp.hardnessValues ?? []).filter((x) => Number.isFinite(x)).join(', ');
-  const rows: [string, string][] = [
-    ['GPS', sp.gps ? `${sp.gps.lat.toFixed(6)}, ${sp.gps.lon.toFixed(6)}` : '-'],
-    ['측정값', vals || '-'],
-    ['통계', st.n > 0 ? `평균 ${st.mean} · 최소 ${st.min} · 최대 ${st.max} (${st.n}/10)` : '-'],
-  ];
-  for (const [label, val] of rows) {
-    put(r, 1, label, { fill: FILL_HEAD });
-    merge(r, 2, lastCol);
-    put(r, 2, val, { left: true });
-    fillRow(r);
-    r++;
-  }
-
-  r = renderPhotos(ws, r, sp.photos, SOIL_PHOTO_CATEGORIES, lastCol, h);
-  return r;
-}
-
-function renderPhotos(
-  ws: ExcelJSNS.Worksheet,
-  startRow: number,
-  photos: Photo[],
-  categories: readonly string[],
-  lastCol: number,
-  h: Helpers,
-): number {
-  const { merge, putCell: put, addImg } = h;
+function renderPhotos(ctx: Ctx, startRow: number, photos: Photo[], categories: readonly string[]): number {
+  const { ws, lastCol, photoExt } = ctx;
   let r = startRow + 1;
-  merge(r, 1, lastCol);
-  put(r, 1, '조사 사진', { fill: FILL_HEAD, bold: true, left: true });
+  mergeRow(ctx, r, 1, lastCol);
+  put(ctx, r, 1, '조사 사진', { fill: FILL_HEAD, bold: true, left: true });
   r++;
 
   const byCat = new Map(photos.filter((p) => p.dataUrl).map((p) => [p.category, p]));
@@ -478,34 +465,31 @@ function renderPhotos(
     [1, mid],
     [mid + 1, lastCol],
   ];
-  const BOX_ROWS = 9;
+  const BOX_ROWS = Math.ceil(PHOTO_BOX.h / ROW_PX) + 1;
+
   for (let rw = 0; rw < Math.ceil(categories.length / 2); rw++) {
     const boxTop = r;
-    for (let k = 0; k < BOX_ROWS; k++) {
-      ws.getRow(r).height = 18;
-      r++;
-    }
+    for (let k = 0; k < BOX_ROWS; k++) ws.getRow(r++).height = ROW_PX;
     const capRow = r;
     r++;
     for (let col = 0; col < 2; col++) {
       const idx = rw * 2 + col;
       if (idx >= categories.length) continue;
-      const cat = categories[idx];
       const [c1, c2] = spans[col];
-      ws.mergeCells(boxTop, c1, boxTop + BOX_ROWS - 1, c2);
-      const box = ws.getCell(boxTop, c1);
-      box.fill = FILL_PHOTO;
-      box.alignment = CENTER;
-      for (let rr = boxTop; rr <= boxTop + BOX_ROWS - 1; rr++)
-        for (let cc = c1; cc <= c2; cc++) ws.getCell(rr, cc).border = BORDER;
+      mergeRect(ctx, boxTop, c1, boxTop + BOX_ROWS - 1, c2);
+      bordersRect(ctx, boxTop, c1, boxTop + BOX_ROWS - 1, c2);
+      const boxCell = ws.getCell(boxTop, c1);
+      boxCell.fill = FILL_PHOTO;
+      boxCell.alignment = CENTER;
 
-      const photo = byCat.get(cat);
-      if (photo?.dataUrl) addImg(photo.dataUrl, c1, boxTop, c2, boxTop + BOX_ROWS - 1);
-      else box.value = '［ 사진 없음 ］';
+      const photo = byCat.get(categories[idx]);
+      const ext = photo ? photoExt.get(photo.id) : undefined;
+      if (photo?.dataUrl && ext) addImg(ctx, photo.dataUrl, c1, boxTop, ext);
+      else boxCell.value = '［ 사진 없음 ］';
 
-      ws.mergeCells(capRow, c1, capRow, c2);
+      mergeRow(ctx, capRow, c1, c2);
       const cap = ws.getCell(capRow, c1);
-      cap.value = cat;
+      cap.value = categories[idx];
       cap.fill = FILL_HEAD;
       cap.alignment = CENTER;
       cap.font = { size: 9 };

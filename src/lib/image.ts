@@ -96,3 +96,24 @@ export function dataUrlExtension(dataUrl: string): 'jpeg' | 'png' | 'gif' {
   if (dataUrl.startsWith('data:image/gif')) return 'gif';
   return 'jpeg';
 }
+
+/** 이미지 실제 픽셀 크기 */
+export function imageSize(dataUrl: string): Promise<{ w: number; h: number }> {
+  return new Promise((resolve) => {
+    const im = new Image();
+    im.onload = () => resolve({ w: im.naturalWidth || 4, h: im.naturalHeight || 3 });
+    im.onerror = () => resolve({ w: 4, h: 3 });
+    im.src = dataUrl;
+  });
+}
+
+/** (iw×ih) 를 (boxW×boxH) 안에 비율 유지하며 맞춤 */
+export function fitInside(
+  iw: number,
+  ih: number,
+  boxW: number,
+  boxH: number,
+): { width: number; height: number } {
+  const s = Math.min(boxW / iw, boxH / ih, 1);
+  return { width: Math.max(1, Math.round(iw * s)), height: Math.max(1, Math.round(ih * s)) };
+}

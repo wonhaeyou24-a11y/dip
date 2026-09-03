@@ -548,6 +548,36 @@ button.full {
   font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
+.hold-bar {
+  margin-top: 12px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--card-2);
+  overflow: hidden;
+}
+.hold-fill {
+  height: 100%;
+  border-radius: 999px;
+  transition: width 0.12s linear;
+  background: var(--text-3);
+}
+.hold-fill.good {
+  background: var(--good);
+}
+.hold-fill.fair {
+  background: var(--fair);
+}
+.hold-fill.poor {
+  background: var(--poor);
+}
+details > summary {
+  cursor: pointer;
+  font-size: 13px;
+  list-style: none;
+}
+details > summary::-webkit-details-marker {
+  display: none;
+}
 
 /* ── photos ── */
 .photo-grid {
