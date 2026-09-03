@@ -1,9 +1,17 @@
 import { useLiveQuery } from 'dexie-react-hooks';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { BUILD_ID } from '../components/UpdatePrompt';
 import { exportBackup, importBackup } from '../lib/backup';
 import { downloadBlob } from '../lib/download';
-import { createFacility, db, deleteFacilityCascade, type Facility } from '../db/db';
+import {
+  createFacility,
+  db,
+  deleteFacilityCascade,
+  ensurePersistentStorage,
+  type Facility,
+  type StorageStatus,
+} from '../db/db';
 
 export function FacilitiesScreen() {
   const facilities = useLiveQuery(
@@ -14,7 +22,12 @@ export function FacilitiesScreen() {
   const [name, setName] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
+  const [storage, setStorage] = useState<StorageStatus | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    void ensurePersistentStorage().then(setStorage);
+  }, []);
 
   const add = async () => {
     if (!name.trim()) return;
@@ -41,7 +54,9 @@ export function FacilitiesScreen() {
     setMsg(null);
     try {
       const r = await importBackup(file);
-      setMsg(`복원 완료 · 시설물 ${r.facilities} · 측점 ${r.stations} · 절리군 ${r.sets} · 사진 ${r.photos}`);
+      setMsg(
+        `복원 완료 · 측점 ${r.stations} · 토양경도 ${r.soils} · 절리군 ${r.sets} · 사진 ${r.photos}`,
+      );
     } catch (e) {
       setMsg(e instanceof Error ? e.message : '복원 실패');
     } finally {
@@ -56,7 +71,7 @@ export function FacilitiesScreen() {
         <div className="btn-row">
           <input
             type="text"
-            style={{ flex: 1, width: 'auto', textAlign: 'left' }}
+            className="text-field"
             placeholder="시설물명 (예: ○○터널 절취사면)"
             value={name}
             onChange={(e) => setName(e.target.value)}
@@ -89,7 +104,11 @@ export function FacilitiesScreen() {
             e.target.value = '';
           }}
         />
-        {msg && <p className="muted" style={{ marginTop: 8 }}>{msg}</p>}
+        {msg && (
+          <p className="muted" style={{ marginTop: 8 }}>
+            {msg}
+          </p>
+        )}
       </div>
 
       <div className="card">
@@ -116,6 +135,15 @@ export function FacilitiesScreen() {
           ))}
         </div>
       </div>
+
+      <p className="build-line">
+        빌드 {BUILD_ID}
+        {storage
+          ? storage.persisted
+            ? ' · 저장소 보호됨 ✓'
+            : ' · 저장소 보호 대기 (홈 화면에 추가 시 적용)'
+          : ''}
+      </p>
     </>
   );
 }

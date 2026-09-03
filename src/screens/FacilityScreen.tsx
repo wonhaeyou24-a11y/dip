@@ -17,6 +17,7 @@ import {
 import { exportBackup, importBackup } from '../lib/backup';
 import { downloadBlob, safeFilename } from '../lib/download';
 import { buildFacilityReport } from '../lib/excel/report';
+import { useHeaderSubtitle } from '../lib/headerContext';
 import { markerLabel } from '../lib/labels';
 import type { MapPoint } from '../lib/mapImage';
 
@@ -45,6 +46,8 @@ export function FacilityScreen() {
     [fid],
     [] as DiscontinuitySet[],
   );
+
+  useHeaderSubtitle(facility?.name);
 
   const setCountByStation = new Map<string, number>();
   for (const s of sets) setCountByStation.set(s.stationId, (setCountByStation.get(s.stationId) ?? 0) + 1);
@@ -211,7 +214,12 @@ export function FacilityScreen() {
 
       <div className="card">
         <h2>조사점 위치도</h2>
-        <PointMap points={mapPoints} />
+        <PointMap
+          points={mapPoints}
+          linkFor={(p) =>
+            p.kind === 'station' ? `/f/${fid}/s/${p.id}` : `/f/${fid}/soil/${p.id}`
+          }
+        />
         <p className="muted" style={{ marginTop: 6 }}>
           <span className="lg station" /> 측점 &nbsp; <span className="lg soil" /> 토양경도
         </p>

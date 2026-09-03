@@ -1,38 +1,20 @@
+/* iOS 라이트 테마 고정 (밝은 톤) */
 :root {
-  --bg: #f2f2f7;
+  --bg: #f5f6f8;
   --card: #ffffff;
-  --card-2: #eff0f4;
-  --sep: rgba(60, 60, 67, 0.28);
-  --text: #000000;
-  --text-2: rgba(60, 60, 67, 0.62);
-  --text-3: rgba(60, 60, 67, 0.35);
+  --card-2: #f0f1f4;
+  --sep: rgba(60, 60, 67, 0.22);
+  --text: #111114;
+  --text-2: rgba(60, 60, 67, 0.6);
+  --text-3: rgba(60, 60, 67, 0.32);
   --tint: #007aff;
   --tint-press: #0063cc;
   --danger: #ff3b30;
   --good: #34c759;
   --fair: #ff9f0a;
   --poor: #ff3b30;
-  --nav-bg: rgba(249, 249, 249, 0.9);
-  color-scheme: light dark;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #000000;
-    --card: #1c1c1e;
-    --card-2: #2c2c2e;
-    --sep: rgba(84, 84, 88, 0.65);
-    --text: #ffffff;
-    --text-2: rgba(235, 235, 245, 0.62);
-    --text-3: rgba(235, 235, 245, 0.3);
-    --tint: #0a84ff;
-    --tint-press: #409cff;
-    --danger: #ff453a;
-    --good: #30d158;
-    --fair: #ffd60a;
-    --poor: #ff453a;
-    --nav-bg: rgba(30, 30, 32, 0.88);
-  }
+  --nav-bg: rgba(255, 255, 255, 0.82);
+  color-scheme: light;
 }
 
 * {
@@ -78,10 +60,17 @@ body {
 }
 .app-header-row {
   display: grid;
-  grid-template-columns: 60px 1fr 60px;
+  grid-template-columns: 52px 1fr 52px;
   align-items: center;
-  height: 44px;
-  padding: 0 8px;
+  min-height: 46px;
+  padding: 5px 8px;
+}
+.app-header-titles {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  min-width: 0;
 }
 .app-header h1 {
   margin: 0;
@@ -89,6 +78,22 @@ body {
   font-weight: 600;
   text-align: center;
   letter-spacing: -0.02em;
+}
+.app-subtitle {
+  font-size: 12px;
+  color: var(--text-2);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.subhead {
+  margin: 16px 0 10px;
+  font-size: 13px;
+  font-weight: 400;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--text-2);
 }
 .back,
 .home {
@@ -602,17 +607,32 @@ button.full {
   font-size: 16px;
 }
 
-/* ── 조사점 위치도 (canvas) ── */
-.pointmap {
-  width: 100%;
+/* ── 조사점 위치도 (Leaflet) ── */
+.map {
+  height: 260px;
   border-radius: 12px;
   overflow: hidden;
-  background: #fff;
-  border: 0.5px solid var(--sep);
+  background: var(--card-2);
+  position: relative;
+  z-index: 0;
+  isolation: isolate;
 }
-.pointmap canvas {
-  display: block;
-  width: 100%;
+.leaflet-container {
+  background: var(--card-2);
+  font: inherit;
+}
+.map-pin span {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  color: #fff;
+  font-weight: 700;
+  font-size: 12px;
+  border: 2px solid #fff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
 }
 .lg {
   display: inline-block;
@@ -690,10 +710,50 @@ button.full {
 /* ── 시설물명 등 넓은 텍스트 필드 ── */
 .text-field {
   width: 100%;
+  flex: 1;
   background: var(--card-2);
   border-radius: 8px;
-  padding: 11px 12px;
+  padding: 12px;
   text-align: left;
+}
+
+/* ── 업데이트 알림 ── */
+.update-toast {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  top: calc(8px + env(safe-area-inset-top));
+  width: min(460px, calc(100% - 20px));
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  background: var(--tint);
+  color: #fff;
+  border-radius: 12px;
+  font-size: 14px;
+  z-index: 3000;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
+}
+.update-toast span {
+  flex: 1;
+}
+.update-toast button {
+  background: rgba(255, 255, 255, 0.25);
+  color: #fff;
+  padding: 7px 12px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.update-toast button.ghost {
+  background: transparent;
+}
+
+.build-line {
+  text-align: center;
+  font-size: 11px;
+  color: var(--text-3);
+  margin: 4px 0 0;
 }
 
 img {

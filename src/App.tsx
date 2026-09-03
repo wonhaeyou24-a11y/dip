@@ -12,7 +12,9 @@ import { FacilityScreen } from './screens/FacilityScreen';
 import { SetScreen } from './screens/SetScreen';
 import { SoilScreen } from './screens/SoilScreen';
 import { StationScreen } from './screens/StationScreen';
+import { UpdatePrompt } from './components/UpdatePrompt';
 import { ensurePersistentStorage, migrateLegacyPhotos } from './db/db';
+import { HeaderProvider, useHeader } from './lib/headerContext';
 
 function ScrollToTop() {
   const { pathname } = useLocation();
@@ -24,6 +26,7 @@ function ScrollToTop() {
 
 function Shell({ title, children }: { title: string; children: React.ReactNode }) {
   const navigate = useNavigate();
+  const { subtitle } = useHeader();
   const atRoot = title === '시설물';
   return (
     <div className="app">
@@ -36,7 +39,10 @@ function Shell({ title, children }: { title: string; children: React.ReactNode }
           ) : (
             <span className="back" aria-hidden />
           )}
-          <h1>{title}</h1>
+          <div className="app-header-titles">
+            <h1>{title}</h1>
+            {subtitle && <span className="app-subtitle">{subtitle}</span>}
+          </div>
           <Link to="/" className="home" aria-label="처음으로">
             ⌂
           </Link>
@@ -55,8 +61,10 @@ export default function App() {
 
   return (
     <HashRouter>
-      <ScrollToTop />
-      <Routes>
+      <HeaderProvider>
+        <ScrollToTop />
+        <UpdatePrompt />
+        <Routes>
         <Route
           path="/"
           element={
@@ -105,7 +113,8 @@ export default function App() {
             </Shell>
           }
         />
-      </Routes>
+        </Routes>
+      </HeaderProvider>
     </HashRouter>
   );
 }

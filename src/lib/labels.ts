@@ -41,7 +41,7 @@ export function composeSoilLocation(staValue?: number, slope?: SoilSlopePosition
 
 /** 지도 마커 라벨: "SITE-A" → "A", "R-1" → "1" */
 export function markerLabel(id: string): string {
-  return id.replace(/^SITE-/, '').replace(/^R-/, '');
+  return id.replace(/^SITE-/i, '').replace(/^R-/i, '');
 }
 
 /** [min, max] 범위에서 count 개의 랜덤 정수 생성 */

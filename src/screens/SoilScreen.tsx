@@ -12,6 +12,7 @@ import {
   type SoilPoint,
 } from '../db/db';
 import { formatGps, getCurrentGps } from '../lib/geo';
+import { useHeaderSubtitle } from '../lib/headerContext';
 import { SOIL_IDS, SOIL_SLOPE_POSITIONS, type SoilSlopePosition } from '../lib/labels';
 
 export function SoilScreen() {
@@ -19,6 +20,8 @@ export function SoilScreen() {
   const navigate = useNavigate();
 
   const soil = useLiveQuery(() => db.soils.get(soilId), [soilId]);
+  const facility = useLiveQuery(() => db.facilities.get(fid), [fid]);
+  useHeaderSubtitle(facility?.name);
   const [gpsBusy, setGpsBusy] = useState(false);
   const [gpsErr, setGpsErr] = useState<string | null>(null);
   const gpsTried = useRef(false);

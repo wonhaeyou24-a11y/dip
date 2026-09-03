@@ -12,6 +12,7 @@ import {
   type DiscontinuityType,
   type SetOrientation,
 } from '../db/db';
+import { useHeaderSubtitle } from '../lib/headerContext';
 import { SET_NAMES } from '../lib/labels';
 import {
   SPACING_CLASSES,
@@ -30,6 +31,8 @@ export function SetScreen() {
 
   const set = useLiveQuery(() => db.sets.get(setid), [setid]);
   const station = useLiveQuery(() => db.stations.get(sid), [sid]);
+  const facility = useLiveQuery(() => db.facilities.get(fid), [fid]);
+  useHeaderSubtitle(facility?.name);
   const setCount = useLiveQuery(
     () => db.sets.where('stationId').equals(sid).count(),
     [sid],

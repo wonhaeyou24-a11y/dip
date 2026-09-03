@@ -20,7 +20,9 @@ import {
 } from '../../db/db';
 import { dataUrlExtension, dataUrlToUint8Array } from '../image';
 import { markerLabel, valueStats } from '../labels';
-import { renderPointMapDataUrl, type MapPoint } from '../mapImage';
+import { captureMapImage } from '../leafletMap';
+import type { MapPoint } from '../mapImage';
+import type { Gps } from '../../db/db';
 import {
   CONDITION_ITEMS,
   ITEM_LABELS,
@@ -114,18 +116,16 @@ export async function buildFacilityReport(facilityId: string): Promise<Blob> {
   const fillRow = (r: number) => {
     for (let c = 1; c <= lastCol; c++) if (!ws.getCell(r, c).border) ws.getCell(r, c).border = BORDER;
   };
-  const addImg = (dataUrl: string, tlCol: number, tlRow: number, w: number, h: number) => {
+  const cellRef = (col: number, row: number) => `${ws.getColumn(col).letter}${row}`;
+  /** 셀 범위(c1,r1)~(c2,r2) 에 이미지 앵커 — 문자열 range 방식이 가장 안정적 */
+  const addImg = (dataUrl: string, c1: number, r1: number, c2: number, r2: number) => {
     if (!dataUrl) return;
     try {
       const id = wb.addImage({
         buffer: dataUrlToUint8Array(dataUrl) as unknown as ExcelJSNS.Buffer,
         extension: dataUrlExtension(dataUrl),
       });
-      ws.addImage(id, {
-        tl: { col: tlCol - 1 + 0.1, row: tlRow - 1 + 0.1 } as ExcelJSNS.Anchor,
-        ext: { width: w, height: h },
-        editAs: 'oneCell',
-      });
+      ws.addImage(id, `${cellRef(c1, r1)}:${cellRef(c2, r2)}`);
     } catch {
       /* ignore */
     }
@@ -154,14 +154,14 @@ export async function buildFacilityReport(facilityId: string): Promise<Blob> {
         kind: 'soil' as const,
       })),
   ];
-  const mapUrl = renderPointMapDataUrl(mapPoints, 960, 600);
+  const mapUrl = await captureMapImage(mapPoints, 940, 580);
   if (mapUrl) {
     merge(r, 1, lastCol);
     putCell(r, 1, `${facility.name} — 조사점 위치도`, { fill: FILL_HEAD, bold: true });
     fillRow(r);
     r++;
     const mapTop = r;
-    const mapRows = 22;
+    const mapRows = 24;
     for (let k = 0; k < mapRows; k++) {
       ws.getRow(r).height = 16;
       r++;
@@ -169,23 +169,49 @@ export async function buildFacilityReport(facilityId: string): Promise<Blob> {
     ws.mergeCells(mapTop, 1, mapTop + mapRows - 1, lastCol);
     for (let rr = mapTop; rr < mapTop + mapRows; rr++)
       for (let cc = 1; cc <= lastCol; cc++) ws.getCell(rr, cc).border = BORDER;
-    addImg(mapUrl, 1, mapTop, 640, 400);
+    addImg(mapUrl, 1, mapTop, lastCol, mapTop + mapRows - 1);
     r += 2;
   }
 
+  const helpers: Helpers = { merge, putCell, fillRow, addImg };
+
   // ── 2) 측점별 불연속면 특성 ──
   for (const st of stations) {
-    r = renderStation(ExcelJS, wb, ws, r, facility, st, lastCol, { merge, putCell, fillRow, addImg }) + 2;
+    r = renderStation(ws, r, facility, st, lastCol, helpers) + 2;
   }
 
-  // ── 3) 토양경도 조사 ──
+  // ── 3) 반발경도 조사 (토양경도 위) ──
+  const withRebound = stations.filter(
+    (s) => (s.reboundValues ?? []).filter((x) => Number.isFinite(x)).length > 0,
+  );
+  if (withRebound.length > 0) {
+    merge(r, 1, lastCol);
+    putCell(r, 1, '반발경도 조사', { fill: FILL_HEAD, bold: true, left: true });
+    fillRow(r);
+    r += 1;
+    for (const st of withRebound) {
+      r =
+        renderValueBlock(
+          r,
+          `반발경도 (${st.siteId})${st.location ? ` : ${st.location}` : ''}`,
+          st.gps,
+          st.reboundValues ?? [],
+          20,
+          lastCol,
+          helpers,
+        ) + 1;
+    }
+    r += 1;
+  }
+
+  // ── 4) 토양경도 조사 ──
   if (soils.length > 0) {
     merge(r, 1, lastCol);
     putCell(r, 1, '토양경도 조사', { fill: FILL_HEAD, bold: true, left: true });
     fillRow(r);
     r += 1;
     for (const sp of soils) {
-      r = renderSoil(ws, r, facility, sp, lastCol, { merge, putCell, fillRow, addImg }) + 2;
+      r = renderSoil(ws, r, facility, sp, lastCol, helpers) + 2;
     }
   }
 
@@ -208,12 +234,50 @@ interface Helpers {
     o?: { fill?: ExcelJSNS.FillPattern; bold?: boolean; color?: string; left?: boolean },
   ) => void;
   fillRow: (r: number) => void;
-  addImg: (dataUrl: string, tlCol: number, tlRow: number, w: number, h: number) => void;
+  addImg: (dataUrl: string, c1: number, r1: number, c2: number, r2: number) => void;
+}
+
+/** 측정값 목록 블록 (반발경도 20 / 토양경도 10 공용) */
+function renderValueBlock(
+  startRow: number,
+  title: string,
+  gps: Gps | undefined,
+  values: number[],
+  target: number,
+  lastCol: number,
+  h: Helpers,
+): number {
+  const { merge, putCell: put, fillRow } = h;
+  let r = startRow;
+  const stat = valueStats(values);
+  const list = values.filter((x) => Number.isFinite(x)).join(', ');
+
+  merge(r, 1, lastCol);
+  put(r, 1, title, { fill: FILL_HEAD, bold: true });
+  fillRow(r);
+  r++;
+
+  const rows: [string, string][] = [
+    ['GPS', gps ? `${gps.lat.toFixed(6)}, ${gps.lon.toFixed(6)}` : '-'],
+    ['측정값', list || '-'],
+    [
+      '통계',
+      stat.n > 0
+        ? `평균 ${stat.mean} · 최소 ${stat.min} · 최대 ${stat.max} (${stat.n}/${target})`
+        : '-',
+    ],
+  ];
+  for (const [label, val] of rows) {
+    put(r, 1, label, { fill: FILL_HEAD });
+    merge(r, 2, lastCol);
+    put(r, 2, val, { left: true });
+    fillRow(r);
+    r++;
+  }
+  return r;
 }
 
 function renderStation(
-  _ExcelJS: typeof ExcelJSNS,
-  wb: ExcelJSNS.Workbook,
   ws: ExcelJSNS.Worksheet,
   startRow: number,
   facility: Facility,
@@ -221,7 +285,6 @@ function renderStation(
   lastCol: number,
   h: Helpers,
 ): number {
-  void wb;
   const first = 2;
   const setCols = (i: number) => ({ l: first + i * 3, m: first + i * 3 + 1, r: first + i * 3 + 2 });
   const colL = (n: number) => ws.getColumn(n).letter;
@@ -437,7 +500,7 @@ function renderPhotos(
         for (let cc = c1; cc <= c2; cc++) ws.getCell(rr, cc).border = BORDER;
 
       const photo = byCat.get(cat);
-      if (photo?.dataUrl) addImg(photo.dataUrl, c1, boxTop, 240, 150);
+      if (photo?.dataUrl) addImg(photo.dataUrl, c1, boxTop, c2, boxTop + BOX_ROWS - 1);
       else box.value = '［ 사진 없음 ］';
 
       ws.mergeCells(capRow, c1, capRow, c2);

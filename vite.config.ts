@@ -4,12 +4,17 @@ import { VitePWA } from 'vite-plugin-pwa';
 
 // GitHub Pages: https://<user>.github.io/dip/  → base must be '/dip/'
 // 로컬 개발(dev)에서는 '/' 로 두어 편하게 접근
+const BUILD_ID = new Date().toISOString().slice(0, 16).replace('T', ' ');
+
 export default defineConfig(({ command }) => ({
   base: command === 'build' ? '/dip/' : '/',
+  define: {
+    __BUILD_ID__: JSON.stringify(BUILD_ID),
+  },
   plugins: [
     react(),
     VitePWA({
-      registerType: 'autoUpdate',
+      registerType: 'prompt',
       includeAssets: ['favicon.svg'],
       manifest: {
         name: '불연속면 조사 (DiscontinuityShot)',
@@ -29,6 +34,8 @@ export default defineConfig(({ command }) => ({
       workbox: {
         globPatterns: ['**/*.{js,css,html,svg,png,woff2}'],
         cleanupOutdatedCaches: true,
+        clientsClaim: true,
+        skipWaiting: false,
       },
       devOptions: { enabled: false },
     }),

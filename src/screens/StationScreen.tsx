@@ -15,6 +15,7 @@ import {
   type Station,
 } from '../db/db';
 import { formatGps, getCurrentGps } from '../lib/geo';
+import { useHeaderSubtitle } from '../lib/headerContext';
 import { SITE_IDS, SLOPE_POSITIONS, type SlopePosition } from '../lib/labels';
 import { formatDipDipDir } from '../lib/sensors/orientation';
 import { SEEPAGE_CLASSES, SEEPAGE_LABELS, type SeepageClass } from '../lib/scoring/condition';
@@ -24,6 +25,8 @@ export function StationScreen() {
   const navigate = useNavigate();
 
   const station = useLiveQuery(() => db.stations.get(sid), [sid]);
+  const facility = useLiveQuery(() => db.facilities.get(fid), [fid]);
+  useHeaderSubtitle(facility?.name);
   const sets = useLiveQuery(
     () => db.sets.where('stationId').equals(sid).sortBy('order'),
     [sid],
@@ -172,10 +175,8 @@ export function StationScreen() {
             </span>
           </div>
         </div>
-      </div>
 
-      <div className="card">
-        <h2>반발경도 R (20개)</h2>
+        <h3 className="subhead">반발경도 R (20개)</h3>
         <MultiValueInput
           count={20}
           values={st.reboundValues ?? []}
