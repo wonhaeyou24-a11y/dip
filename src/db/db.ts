@@ -1,22 +1,35 @@
 /**
- * 로컬 저장소 (IndexedDB via Dexie) — 완전 오프라인.
+ * 로컬 저장소 (IndexedDB via Dexie) — 완전 오프라인, 자료 최우선 보존.
  *
- * 계층: Facility(시설물) → Station(측점) → DiscontinuitySet(절리군) → Condition(절리상태)
- *       Station 하위에 Photo(측점 단위), DiscontinuitySet 하위에 OrientationMeasurement(원자료)
+ * 계층: Facility(시설물)
+ *        ├─ Station(측점) → DiscontinuitySet(절리군) → Condition(절리상태)
+ *        └─ SoilPoint(토양경도)
+ *       Photo 는 Station 또는 SoilPoint 에 소속 (ownerType/ownerId).
  *
+ * 사진은 base64 data URL 문자열로 저장 (Blob 직렬화/URL 생명주기 이슈 회피).
  * 설계 근거: docs/절리상태_평가_설계.md §4
  */
 
-import Dexie, { type EntityTable } from 'dexie';
+import Dexie, { type EntityTable, type Transaction } from 'dexie';
 import type { Condition } from '../lib/scoring/condition';
 import type { SeepageClass, SpacingClass } from '../lib/scoring/condition';
 import { emptyCondition } from '../lib/scoring/condition';
-import { composeLocation, nextSetName, nextSiteId } from '../lib/labels';
+import { blobToDataURL } from '../lib/image';
+import {
+  composeLocation,
+  composeSoilLocation,
+  nextSetName,
+  nextSiteId,
+  nextSoilId,
+  type SlopePosition,
+  type SoilSlopePosition,
+} from '../lib/labels';
 import type { MeasurementQuality, Orientation } from '../lib/sensors/orientation';
 
 export type DiscontinuityType = '절리' | '층리' | '단층' | '편리·엽리' | '기타';
 
-export const PHOTO_CATEGORIES = [
+/** 측점 조사 사진 (7종) */
+export const STATION_PHOTO_CATEGORIES = [
   '조사 전경사진 ①',
   '조사 전경사진 ②',
   '절리 측정 사진',
@@ -25,7 +38,11 @@ export const PHOTO_CATEGORIES = [
   '주향/경사 측정 사진',
   '점검망치 조사 사진',
 ] as const;
-export type PhotoCategory = (typeof PHOTO_CATEGORIES)[number];
+
+/** 토양경도 조사 사진 (2종) */
+export const SOIL_PHOTO_CATEGORIES = ['토양경도 조사 사진 ①', '토양경도 조사 사진 ②'] as const;
+
+export type OwnerType = 'station' | 'soil';
 
 export interface Facility {
   id: string;
@@ -46,25 +63,36 @@ export interface Gps {
 export interface Station {
   id: string;
   facilityId: string;
-  /** "SITE-A" */
-  siteId: string;
-  /** 조사 시 바뀌는 값: 측점 거리(m) */
-  staValue?: number;
-  /** 조사 시 바뀌는 값: 비탈면 위치 (상부/중부/하부) */
-  slopePosition?: '상부' | '중부' | '하부' | null;
-  /** 위치설명 — staValue·slopePosition 으로 자동 구성 ("측점 58m 비탈면 하부") */
-  location: string;
+  siteId: string; // "SITE-A"
+  staValue?: number; // 측점 거리(m)
+  slopePosition?: SlopePosition | null; // 상부/중부/하부
+  location: string; // 자동 구성 "측점 58m 비탈면 하부"
   gps?: Gps;
   surveyor: string;
   surveyedAt: number;
-  /** 반발경도 R (값만) */
-  reboundHardness?: number;
-  /** 강도 (MPa) */
-  wallStrength_MPa?: number;
-  /** 누수 (표 14.12), 측점 공통 */
+  /** 반발경도 R 값 (최대 20개) */
+  reboundValues?: number[];
+  wallStrength_MPa?: number; // (현재 UI 미사용, 결과보고 빈칸)
   seepage: SeepageClass | null;
-  /** 암괴크기 (m) */
   blockSize?: { x: number; y: number; z: number };
+  note?: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface SoilPoint {
+  id: string;
+  facilityId: string;
+  pointId: string; // "R-1"
+  order: number;
+  staValue?: number; // 거리(m)
+  slopePosition?: SoilSlopePosition | null; // 상/중/하
+  location: string; // "30m 상"
+  gps?: Gps;
+  surveyor: string;
+  surveyedAt: number;
+  /** 토양경도 값 (최대 10개) */
+  hardnessValues?: number[];
   note?: string;
   createdAt: number;
   updatedAt: number;
@@ -81,13 +109,11 @@ export interface DiscontinuitySet {
   id: string;
   stationId: string;
   facilityId: string;
-  /** "Set 1" */
   name: string;
   order: number;
   dtype: DiscontinuityType;
   orientation: SetOrientation | null;
   spacing: SpacingClass | null;
-  /** 간격 실측 (선택) */
   spacing_min_m?: number;
   spacing_max_m?: number;
   spacing_mode_m?: number;
@@ -111,18 +137,24 @@ export interface OrientationMeasurement {
 export interface Photo {
   id: string;
   facilityId: string;
-  stationId: string;
-  category: PhotoCategory;
-  blob: Blob;
-  thumbnail?: Blob;
+  ownerType: OwnerType;
+  ownerId: string; // stationId 또는 soilPointId
+  category: string;
+  /** base64 data URL (표시·Excel 공용) */
+  dataUrl: string;
   gps?: Gps;
   takenAt: number;
   note?: string;
+  // 구버전 호환 (v1)
+  blob?: Blob;
+  thumbnail?: Blob;
+  stationId?: string;
 }
 
 class AppDB extends Dexie {
   facilities!: EntityTable<Facility, 'id'>;
   stations!: EntityTable<Station, 'id'>;
+  soils!: EntityTable<SoilPoint, 'id'>;
   sets!: EntityTable<DiscontinuitySet, 'id'>;
   measurements!: EntityTable<OrientationMeasurement, 'id'>;
   photos!: EntityTable<Photo, 'id'>;
@@ -136,6 +168,28 @@ class AppDB extends Dexie {
       measurements: 'id, setId, measuredAt',
       photos: 'id, stationId, facilityId, category',
     });
+    const v2v3Stores = {
+      facilities: 'id, updatedAt',
+      stations: 'id, facilityId, updatedAt',
+      soils: 'id, facilityId, order',
+      sets: 'id, stationId, facilityId, order',
+      measurements: 'id, setId, measuredAt',
+      photos: 'id, facilityId, ownerType, ownerId, category',
+    };
+    // 사진 소유자 필드 (동기 modify — 트랜잭션 유지). blob→dataUrl 변환은
+    // migrateLegacyPhotos() 에서 별도 처리 (upgrade 트랜잭션 내 비-Dexie await 금지)
+    const ownerMigration = (tx: Transaction) =>
+      tx
+        .table('photos')
+        .toCollection()
+        .modify((p: Record<string, unknown>) => {
+          if (p.stationId && !p.ownerId) {
+            p.ownerType = 'station';
+            p.ownerId = p.stationId;
+          }
+        });
+    this.version(2).stores(v2v3Stores).upgrade(ownerMigration);
+    this.version(3).stores(v2v3Stores).upgrade(ownerMigration);
   }
 }
 
@@ -145,6 +199,68 @@ export const uid = (): string =>
   typeof crypto !== 'undefined' && 'randomUUID' in crypto
     ? crypto.randomUUID()
     : `id-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
+// ─────────────────────────────────────────────────────────────
+// 영구 저장소 요청 (자료 유실 방지 — 브라우저 저장소 정리에서 제외)
+// ─────────────────────────────────────────────────────────────
+export interface StorageStatus {
+  persisted: boolean;
+  supported: boolean;
+  usageMB?: number;
+  quotaMB?: number;
+}
+
+/**
+ * 구버전(Blob) 사진을 dataUrl 문자열로 변환 (백그라운드, 1회).
+ * Dexie upgrade 트랜잭션 밖에서 실행 — FileReader await 안전.
+ */
+export async function migrateLegacyPhotos(): Promise<number> {
+  let count = 0;
+  const legacy = await db.photos
+    .filter((p) => !p.dataUrl && (p.blob instanceof Blob || p.thumbnail instanceof Blob))
+    .toArray();
+  for (const p of legacy) {
+    const src = p.thumbnail instanceof Blob ? p.thumbnail : p.blob;
+    if (!(src instanceof Blob)) continue;
+    try {
+      const dataUrl = await blobToDataURL(src);
+      await db.photos.update(p.id, {
+        dataUrl,
+        ownerType: p.ownerType ?? 'station',
+        ownerId: p.ownerId ?? p.stationId ?? '',
+      });
+      count++;
+    } catch {
+      /* 변환 실패해도 원본 blob 은 유지 */
+    }
+  }
+  return count;
+}
+
+export async function ensurePersistentStorage(): Promise<StorageStatus> {
+  const s = navigator.storage;
+  if (!s || !('persist' in s)) return { persisted: false, supported: false };
+  let persisted = (await s.persisted?.()) ?? false;
+  if (!persisted && s.persist) {
+    try {
+      persisted = await s.persist();
+    } catch {
+      /* ignore */
+    }
+  }
+  let usageMB: number | undefined;
+  let quotaMB: number | undefined;
+  try {
+    const est = await s.estimate?.();
+    if (est) {
+      usageMB = (est.usage ?? 0) / 1024 / 1024;
+      quotaMB = (est.quota ?? 0) / 1024 / 1024;
+    }
+  } catch {
+    /* ignore */
+  }
+  return { persisted, supported: true, usageMB, quotaMB };
+}
 
 // ─────────────────────────────────────────────────────────────
 // 생성 헬퍼
@@ -157,21 +273,36 @@ export async function createFacility(name: string): Promise<string> {
   return id;
 }
 
-export async function createStation(
-  facilityId: string,
-  init: Partial<Pick<Station, 'siteId' | 'location' | 'surveyor'>> = {},
-): Promise<string> {
+export async function createStation(facilityId: string): Promise<string> {
   const now = Date.now();
   const id = uid();
   const count = await db.stations.where('facilityId').equals(facilityId).count();
   await db.stations.add({
     id,
     facilityId,
-    siteId: init.siteId ?? nextSiteId(count),
-    location: init.location ?? '',
-    surveyor: init.surveyor ?? '',
+    siteId: nextSiteId(count),
+    location: '',
+    surveyor: '',
     surveyedAt: now,
     seepage: null,
+    createdAt: now,
+    updatedAt: now,
+  });
+  return id;
+}
+
+export async function createSoilPoint(facilityId: string): Promise<string> {
+  const now = Date.now();
+  const id = uid();
+  const count = await db.soils.where('facilityId').equals(facilityId).count();
+  await db.soils.add({
+    id,
+    facilityId,
+    pointId: nextSoilId(count),
+    order: count,
+    location: '',
+    surveyor: '',
+    surveyedAt: now,
     createdAt: now,
     updatedAt: now,
   });
@@ -200,17 +331,27 @@ export async function createSet(stationId: string): Promise<string> {
   return id;
 }
 
+// ─────────────────────────────────────────────────────────────
+// 갱신 헬퍼
+// ─────────────────────────────────────────────────────────────
+
 export async function updateFacility(id: string, patch: Partial<Facility>): Promise<void> {
   await db.facilities.update(id, { ...patch, updatedAt: Date.now() });
 }
 export async function updateStation(id: string, patch: Partial<Station>): Promise<void> {
   await db.stations.update(id, { ...patch, updatedAt: Date.now() });
 }
+export async function updateSoilPoint(id: string, patch: Partial<SoilPoint>): Promise<void> {
+  await db.soils.update(id, { ...patch, updatedAt: Date.now() });
+}
+export async function updateSet(id: string, patch: Partial<DiscontinuitySet>): Promise<void> {
+  await db.sets.update(id, { ...patch, updatedAt: Date.now() });
+}
 
-/** 측점거리·위치 중 하나를 바꾸고, 두 값으로 location 을 재구성 (현재 저장값 기준). */
+/** 측점거리·위치 중 하나를 바꾸고, 두 값으로 location 재구성 (현재 저장값 기준). */
 export async function setStationLocationPart(
   id: string,
-  part: { staValue?: number; slopePosition?: '상부' | '중부' | '하부' | null },
+  part: { staValue?: number; slopePosition?: SlopePosition | null },
 ): Promise<void> {
   await db.transaction('rw', db.stations, async () => {
     const row = await db.stations.get(id);
@@ -225,11 +366,26 @@ export async function setStationLocationPart(
     });
   });
 }
-export async function updateSet(id: string, patch: Partial<DiscontinuitySet>): Promise<void> {
-  await db.sets.update(id, { ...patch, updatedAt: Date.now() });
+
+export async function setSoilLocationPart(
+  id: string,
+  part: { staValue?: number; slopePosition?: SoilSlopePosition | null },
+): Promise<void> {
+  await db.transaction('rw', db.soils, async () => {
+    const row = await db.soils.get(id);
+    if (!row) return;
+    const staValue = 'staValue' in part ? part.staValue : row.staValue;
+    const slopePosition = 'slopePosition' in part ? (part.slopePosition ?? null) : row.slopePosition;
+    await db.soils.update(id, {
+      staValue,
+      slopePosition,
+      location: composeSoilLocation(staValue, slopePosition),
+      updatedAt: Date.now(),
+    });
+  });
 }
 
-/** 같은 측점의 직전 절리군에서 종류·간격·절리상태를 복사 (방향성은 제외). */
+/** 같은 측점의 직전 절리군에서 종류·간격·절리상태 복사 (방향성 제외). */
 export async function copyPreviousSet(setId: string): Promise<boolean> {
   const cur = await db.sets.get(setId);
   if (!cur) return false;
@@ -249,29 +405,45 @@ export async function copyPreviousSet(setId: string): Promise<boolean> {
   return true;
 }
 
+// ─────────────────────────────────────────────────────────────
+// 삭제 (cascade)
+// ─────────────────────────────────────────────────────────────
+
 export async function deleteFacilityCascade(facilityId: string): Promise<void> {
-  await db.transaction('rw', db.facilities, db.stations, db.sets, db.measurements, db.photos, async () => {
-    const setIds = await db.sets.where('facilityId').equals(facilityId).primaryKeys();
-    await db.measurements.where('setId').anyOf(setIds).delete();
-    await db.sets.where('facilityId').equals(facilityId).delete();
-    await db.photos.where('facilityId').equals(facilityId).delete();
-    await db.stations.where('facilityId').equals(facilityId).delete();
-    await db.facilities.delete(facilityId);
-  });
+  await db.transaction(
+    'rw',
+    [db.facilities, db.stations, db.soils, db.sets, db.measurements, db.photos],
+    async () => {
+      const setIds = await db.sets.where('facilityId').equals(facilityId).primaryKeys();
+      await db.measurements.where('setId').anyOf(setIds).delete();
+      await db.sets.where('facilityId').equals(facilityId).delete();
+      await db.photos.where('facilityId').equals(facilityId).delete();
+      await db.stations.where('facilityId').equals(facilityId).delete();
+      await db.soils.where('facilityId').equals(facilityId).delete();
+      await db.facilities.delete(facilityId);
+    },
+  );
 }
 
 export async function deleteStationCascade(stationId: string): Promise<void> {
-  await db.transaction('rw', db.stations, db.sets, db.measurements, db.photos, async () => {
+  await db.transaction('rw', [db.stations, db.sets, db.measurements, db.photos], async () => {
     const setIds = await db.sets.where('stationId').equals(stationId).primaryKeys();
     await db.measurements.where('setId').anyOf(setIds).delete();
     await db.sets.where('stationId').equals(stationId).delete();
-    await db.photos.where('stationId').equals(stationId).delete();
+    await db.photos.where('ownerId').equals(stationId).delete();
     await db.stations.delete(stationId);
   });
 }
 
+export async function deleteSoilCascade(soilId: string): Promise<void> {
+  await db.transaction('rw', [db.soils, db.photos], async () => {
+    await db.photos.where('ownerId').equals(soilId).delete();
+    await db.soils.delete(soilId);
+  });
+}
+
 export async function deleteSetCascade(setId: string): Promise<void> {
-  await db.transaction('rw', db.sets, db.measurements, async () => {
+  await db.transaction('rw', [db.sets, db.measurements], async () => {
     await db.measurements.where('setId').equals(setId).delete();
     await db.sets.delete(setId);
   });

@@ -1,8 +1,10 @@
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
+import { MultiValueInput } from '../components/MultiValueInput';
 import { PhotoGrid } from '../components/PhotoGrid';
 import { StickyBar, flushAndRun } from '../components/StickyBar';
+import { STATION_PHOTO_CATEGORIES } from '../db/db';
 import {
   createSet,
   db,
@@ -170,7 +172,16 @@ export function StationScreen() {
             </span>
           </div>
         </div>
-        <p className="hint">반발경도·강도는 결과보고에 빈칸으로 출력됩니다 (사무실 기입).</p>
+      </div>
+
+      <div className="card">
+        <h2>반발경도 R (20개)</h2>
+        <MultiValueInput
+          count={20}
+          values={st.reboundValues ?? []}
+          onChange={(v) => save({ reboundValues: v })}
+        />
+        <p className="hint">강도(MPa)는 결과보고에 빈칸으로 출력됩니다 (사무실 기입).</p>
       </div>
 
       <button
@@ -213,7 +224,12 @@ export function StationScreen() {
 
       <div className="card">
         <h2>조사 사진</h2>
-        <PhotoGrid facilityId={fid} stationId={sid} />
+        <PhotoGrid
+          facilityId={fid}
+          ownerType="station"
+          ownerId={sid}
+          categories={STATION_PHOTO_CATEGORIES}
+        />
       </div>
 
       <div className="card">

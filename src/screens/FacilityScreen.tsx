@@ -1,19 +1,24 @@
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { StationMap } from '../components/StationMap';
+import { PointMap } from '../components/PointMap';
 import { StickyBar, flushAndRun } from '../components/StickyBar';
 import {
+  createSoilPoint,
   createStation,
   db,
+  deleteSoilCascade,
   deleteStationCascade,
   updateFacility,
   type DiscontinuitySet,
+  type SoilPoint,
   type Station,
 } from '../db/db';
 import { exportBackup, importBackup } from '../lib/backup';
 import { downloadBlob, safeFilename } from '../lib/download';
 import { buildFacilityReport } from '../lib/excel/report';
+import { markerLabel } from '../lib/labels';
+import type { MapPoint } from '../lib/mapImage';
 
 export function FacilityScreen() {
   const { fid = '' } = useParams();
@@ -30,6 +35,11 @@ export function FacilityScreen() {
     [fid],
     [] as Station[],
   );
+  const soils = useLiveQuery(
+    () => db.soils.where('facilityId').equals(fid).sortBy('order'),
+    [fid],
+    [] as SoilPoint[],
+  );
   const sets = useLiveQuery(
     () => db.sets.where('facilityId').equals(fid).toArray(),
     [fid],
@@ -42,7 +52,29 @@ export function FacilityScreen() {
   if (facility === undefined) return <p className="muted">불러오는 중…</p>;
   if (facility === null) return <p className="muted">시설물을 찾을 수 없습니다.</p>;
 
-  const ordered = [...stations].sort((a, b) => a.createdAt - b.createdAt);
+  const orderedStations = [...stations].sort((a, b) => a.createdAt - b.createdAt);
+  const hasData = orderedStations.length + soils.length > 0;
+
+  const mapPoints: MapPoint[] = [
+    ...orderedStations
+      .filter((s) => s.gps)
+      .map((s) => ({
+        id: s.id,
+        label: markerLabel(s.siteId),
+        lat: s.gps!.lat,
+        lon: s.gps!.lon,
+        kind: 'station' as const,
+      })),
+    ...soils
+      .filter((s) => s.gps)
+      .map((s) => ({
+        id: s.id,
+        label: markerLabel(s.pointId),
+        lat: s.gps!.lat,
+        lon: s.gps!.lon,
+        kind: 'soil' as const,
+      })),
+  ];
 
   const exportExcel = async () => {
     setExporting(true);
@@ -76,7 +108,7 @@ export function FacilityScreen() {
     setMsg(null);
     try {
       const r = await importBackup(file);
-      setMsg(`복원 완료 · 시설물 ${r.facilities} · 측점 ${r.stations} · 절리군 ${r.sets} · 사진 ${r.photos}`);
+      setMsg(`복원 완료 · 측점 ${r.stations} · 토양경도 ${r.soils ?? 0} · 절리군 ${r.sets} · 사진 ${r.photos}`);
     } catch (e) {
       setMsg(e instanceof Error ? e.message : '복원 실패');
     } finally {
@@ -90,7 +122,7 @@ export function FacilityScreen() {
         <h2>시설물명</h2>
         <input
           type="text"
-          style={{ width: '100%', textAlign: 'left' }}
+          className="text-field"
           defaultValue={facility.name}
           onBlur={(e) => updateFacility(fid, { name: e.target.value.trim() || facility.name })}
         />
@@ -106,11 +138,21 @@ export function FacilityScreen() {
         ＋ 측점 추가
       </button>
 
+      <button
+        className="primary"
+        onClick={async () => {
+          const id = await createSoilPoint(fid);
+          navigate(`/f/${fid}/soil/${id}`);
+        }}
+      >
+        ＋ 토양경도 추가
+      </button>
+
       <div className="card">
-        <h2>측점 ({ordered.length})</h2>
-        {ordered.length === 0 && <p className="muted">측점을 추가하세요.</p>}
+        <h2>측점 ({orderedStations.length})</h2>
+        {orderedStations.length === 0 && <p className="muted">측점을 추가하세요.</p>}
         <div className="list">
-          {ordered.map((s) => (
+          {orderedStations.map((s) => (
             <div className="list-item" key={s.id}>
               <Link to={`/f/${fid}/s/${s.id}`} className="list-main">
                 <strong>
@@ -118,7 +160,7 @@ export function FacilityScreen() {
                   {s.location ? ` · ${s.location}` : ''}
                 </strong>
                 <span className="muted">
-                  절리군 {setCountByStation.get(s.id) ?? 0}개{s.gps ? ' · GPS ✓' : ' · GPS 없음'}
+                  절리군 {setCountByStation.get(s.id) ?? 0}개 · GPS {s.gps ? '✓' : '없음'}
                 </span>
               </Link>
               <button
@@ -137,25 +179,50 @@ export function FacilityScreen() {
       </div>
 
       <div className="card">
-        <h2>측점 위치</h2>
-        <StationMap facilityId={fid} stations={ordered} />
+        <h2>토양경도 ({soils.length})</h2>
+        {soils.length === 0 && <p className="muted">토양경도 조사점을 추가하세요.</p>}
+        <div className="list">
+          {soils.map((s) => (
+            <div className="list-item" key={s.id}>
+              <Link to={`/f/${fid}/soil/${s.id}`} className="list-main">
+                <strong>
+                  {s.pointId}
+                  {s.location ? ` · ${s.location}` : ''}
+                </strong>
+                <span className="muted">
+                  경도 {s.hardnessValues?.filter((x) => Number.isFinite(x)).length ?? 0}/10 · GPS{' '}
+                  {s.gps ? '✓' : '없음'}
+                </span>
+              </Link>
+              <button
+                className="link-danger"
+                onClick={() => {
+                  if (confirm(`토양경도 "${s.pointId}" 및 사진을 삭제합니다.`)) {
+                    void deleteSoilCascade(s.id);
+                  }
+                }}
+              >
+                삭제
+              </button>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="card">
+        <h2>조사점 위치도</h2>
+        <PointMap points={mapPoints} />
+        <p className="muted" style={{ marginTop: 6 }}>
+          <span className="lg station" /> 측점 &nbsp; <span className="lg soil" /> 토양경도
+        </p>
       </div>
 
       <div className="card">
         <h2>결과보고 / 백업</h2>
-        <button
-          className="ghost"
-          style={{ width: '100%' }}
-          onClick={exportExcel}
-          disabled={exporting || ordered.length === 0}
-        >
+        <button className="ghost full" onClick={exportExcel} disabled={exporting || !hasData}>
           {exporting ? 'Excel 생성 중…' : 'Excel 결과보고 내보내기'}
         </button>
-        {exportErr && (
-          <div className="warn" style={{ marginTop: 8 }}>
-            {exportErr}
-          </div>
-        )}
+        {exportErr && <div className="warn">{exportErr}</div>}
         <div className="btn-row" style={{ marginTop: 10 }}>
           <button className="ghost" onClick={doExport} disabled={busy !== null}>
             {busy === 'export' ? '내보내는 중…' : 'JSON 백업'}

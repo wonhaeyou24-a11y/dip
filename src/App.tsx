@@ -1,8 +1,26 @@
-import { HashRouter, Link, Route, Routes, useNavigate } from 'react-router-dom';
+import { useEffect } from 'react';
+import {
+  HashRouter,
+  Link,
+  Route,
+  Routes,
+  useLocation,
+  useNavigate,
+} from 'react-router-dom';
 import { FacilitiesScreen } from './screens/FacilitiesScreen';
 import { FacilityScreen } from './screens/FacilityScreen';
 import { SetScreen } from './screens/SetScreen';
+import { SoilScreen } from './screens/SoilScreen';
 import { StationScreen } from './screens/StationScreen';
+import { ensurePersistentStorage, migrateLegacyPhotos } from './db/db';
+
+function ScrollToTop() {
+  const { pathname } = useLocation();
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [pathname]);
+  return null;
+}
 
 function Shell({ title, children }: { title: string; children: React.ReactNode }) {
   const navigate = useNavigate();
@@ -30,8 +48,14 @@ function Shell({ title, children }: { title: string; children: React.ReactNode }
 }
 
 export default function App() {
+  useEffect(() => {
+    void ensurePersistentStorage();
+    void migrateLegacyPhotos();
+  }, []);
+
   return (
     <HashRouter>
+      <ScrollToTop />
       <Routes>
         <Route
           path="/"
@@ -44,7 +68,7 @@ export default function App() {
         <Route
           path="/f/:fid"
           element={
-            <Shell title="측점 목록">
+            <Shell title="시설물 조사">
               <FacilityScreen />
             </Shell>
           }
@@ -54,6 +78,14 @@ export default function App() {
           element={
             <Shell title="측점 조사">
               <StationScreen />
+            </Shell>
+          }
+        />
+        <Route
+          path="/f/:fid/soil/:soilId"
+          element={
+            <Shell title="토양경도 조사">
+              <SoilScreen />
             </Shell>
           }
         />

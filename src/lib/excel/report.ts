@@ -1,19 +1,26 @@
 /**
- * 결과보고 Excel 생성 — 시설물 1개 = 파일 1개 = 시트 1개.
- * 시트에 측점별 "불연속면 특성" 표를 세로로 이어 정리 + 측점별 조사사진.
+ * 결과보고 Excel — 시설물 1개 = 파일 1개 = 시트 1개.
  *
- * 양식 근거: docs/보고서양식/ (사용자 제공 이미지 재현)
+ * 구성:
+ *   1) 조사점 위치도 (시트 최상단)
+ *   2) 측점별 "불연속면 특성" 표 (세로로 이어 정리) + 조사사진
+ *   3) 토양경도 조사 표 (상세절리조사 다음)
  */
 
 import type ExcelJSNS from 'exceljs';
 import {
+  SOIL_PHOTO_CATEGORIES,
+  STATION_PHOTO_CATEGORIES,
   db,
-  PHOTO_CATEGORIES,
   type DiscontinuitySet,
   type Facility,
   type Photo,
+  type SoilPoint,
   type Station,
 } from '../../db/db';
+import { dataUrlExtension, dataUrlToUint8Array } from '../image';
+import { markerLabel, valueStats } from '../labels';
+import { renderPointMapDataUrl, type MapPoint } from '../mapImage';
 import {
   CONDITION_ITEMS,
   ITEM_LABELS,
@@ -40,47 +47,37 @@ const BORDER: Partial<ExcelJSNS.Borders> = { top: thin, left: thin, bottom: thin
 const CENTER: Partial<ExcelJSNS.Alignment> = { horizontal: 'center', vertical: 'middle', wrapText: true };
 
 type Stage = 1 | 2 | 3 | 4 | 5;
-function bandText(stage: Stage): string {
+const bandText = (stage: Stage) => {
   const s = STAGE_SCORES[stage];
   return s.length === 1 ? String(s[0]) : `${s[0]}~${s[1]}`;
-}
-function extFromType(type: string): 'jpeg' | 'png' | 'gif' {
-  if (type.includes('png')) return 'png';
-  if (type.includes('gif')) return 'gif';
-  return 'jpeg';
-}
+};
 
 type StationFull = Station & { sets: DiscontinuitySet[]; photos: Photo[] };
-type PhotoImg = { buffer: ArrayBuffer; extension: 'jpeg' | 'png' | 'gif' };
+type SoilFull = SoilPoint & { photos: Photo[] };
 
 export async function buildFacilityReport(facilityId: string): Promise<Blob> {
   const { default: ExcelJS } = await import('exceljs');
 
   const facility = await db.facilities.get(facilityId);
   if (!facility) throw new Error('시설물을 찾을 수 없습니다.');
+
   const stationRows = await db.stations.where('facilityId').equals(facilityId).toArray();
   stationRows.sort((a, b) => a.createdAt - b.createdAt);
-
   const stations: StationFull[] = await Promise.all(
     stationRows.map(async (st) => ({
       ...st,
       sets: await db.sets.where('stationId').equals(st.id).sortBy('order'),
-      photos: await db.photos.where('stationId').equals(st.id).toArray(),
+      photos: await db.photos.where('ownerId').equals(st.id).toArray(),
     })),
   );
 
-  // 사진 → ArrayBuffer 미리 변환 (addImage 는 동기)
-  const photoImgs = new Map<string, PhotoImg>();
-  for (const st of stations) {
-    for (const p of st.photos) {
-      const src = p.thumbnail ?? p.blob;
-      try {
-        photoImgs.set(p.id, { buffer: await src.arrayBuffer(), extension: extFromType(src.type) });
-      } catch {
-        /* 손상된 사진은 건너뜀 */
-      }
-    }
-  }
+  const soilRows = await db.soils.where('facilityId').equals(facilityId).sortBy('order');
+  const soils: SoilFull[] = await Promise.all(
+    soilRows.map(async (sp) => ({
+      ...sp,
+      photos: await db.photos.where('ownerId').equals(sp.id).toArray(),
+    })),
+  );
 
   const wb = new ExcelJS.Workbook();
   wb.creator = 'DiscontinuityShot';
@@ -98,9 +95,103 @@ export async function buildFacilityReport(facilityId: string): Promise<Blob> {
     ws.getColumn(4 + i * 3).width = 6;
   }
 
-  let row = 1;
-  for (const st of stations) row = renderStation(wb, ws, row, facility, st, lastCol, photoImgs) + 2;
-  if (stations.length === 0) ws.getCell(1, 1).value = '측점 데이터가 없습니다.';
+  const merge = (r: number, c1: number, c2: number) => {
+    if (c2 > c1) ws.mergeCells(r, c1, r, c2);
+  };
+  const putCell = (
+    r: number,
+    c: number,
+    val: ExcelJSNS.CellValue,
+    o: { fill?: ExcelJSNS.FillPattern; bold?: boolean; color?: string; left?: boolean } = {},
+  ) => {
+    const cell = ws.getCell(r, c);
+    cell.value = val;
+    cell.border = BORDER;
+    cell.alignment = o.left ? { ...CENTER, horizontal: 'left', indent: 1 } : CENTER;
+    if (o.fill) cell.fill = o.fill;
+    if (o.bold || o.color) cell.font = { bold: o.bold, color: o.color ? { argb: o.color } : undefined };
+  };
+  const fillRow = (r: number) => {
+    for (let c = 1; c <= lastCol; c++) if (!ws.getCell(r, c).border) ws.getCell(r, c).border = BORDER;
+  };
+  const addImg = (dataUrl: string, tlCol: number, tlRow: number, w: number, h: number) => {
+    if (!dataUrl) return;
+    try {
+      const id = wb.addImage({
+        buffer: dataUrlToUint8Array(dataUrl) as unknown as ExcelJSNS.Buffer,
+        extension: dataUrlExtension(dataUrl),
+      });
+      ws.addImage(id, {
+        tl: { col: tlCol - 1 + 0.1, row: tlRow - 1 + 0.1 } as ExcelJSNS.Anchor,
+        ext: { width: w, height: h },
+        editAs: 'oneCell',
+      });
+    } catch {
+      /* ignore */
+    }
+  };
+
+  let r = 1;
+
+  // ── 1) 조사점 위치도 ──
+  const mapPoints: MapPoint[] = [
+    ...stations
+      .filter((s) => s.gps)
+      .map((s) => ({
+        id: s.id,
+        label: markerLabel(s.siteId),
+        lat: s.gps!.lat,
+        lon: s.gps!.lon,
+        kind: 'station' as const,
+      })),
+    ...soils
+      .filter((s) => s.gps)
+      .map((s) => ({
+        id: s.id,
+        label: markerLabel(s.pointId),
+        lat: s.gps!.lat,
+        lon: s.gps!.lon,
+        kind: 'soil' as const,
+      })),
+  ];
+  const mapUrl = renderPointMapDataUrl(mapPoints, 960, 600);
+  if (mapUrl) {
+    merge(r, 1, lastCol);
+    putCell(r, 1, `${facility.name} — 조사점 위치도`, { fill: FILL_HEAD, bold: true });
+    fillRow(r);
+    r++;
+    const mapTop = r;
+    const mapRows = 22;
+    for (let k = 0; k < mapRows; k++) {
+      ws.getRow(r).height = 16;
+      r++;
+    }
+    ws.mergeCells(mapTop, 1, mapTop + mapRows - 1, lastCol);
+    for (let rr = mapTop; rr < mapTop + mapRows; rr++)
+      for (let cc = 1; cc <= lastCol; cc++) ws.getCell(rr, cc).border = BORDER;
+    addImg(mapUrl, 1, mapTop, 640, 400);
+    r += 2;
+  }
+
+  // ── 2) 측점별 불연속면 특성 ──
+  for (const st of stations) {
+    r = renderStation(ExcelJS, wb, ws, r, facility, st, lastCol, { merge, putCell, fillRow, addImg }) + 2;
+  }
+
+  // ── 3) 토양경도 조사 ──
+  if (soils.length > 0) {
+    merge(r, 1, lastCol);
+    putCell(r, 1, '토양경도 조사', { fill: FILL_HEAD, bold: true, left: true });
+    fillRow(r);
+    r += 1;
+    for (const sp of soils) {
+      r = renderSoil(ws, r, facility, sp, lastCol, { merge, putCell, fillRow, addImg }) + 2;
+    }
+  }
+
+  if (stations.length === 0 && soils.length === 0) {
+    ws.getCell(r, 1).value = '조사 데이터가 없습니다.';
+  }
 
   const buf = await wb.xlsx.writeBuffer();
   return new Blob([buf], {
@@ -108,48 +199,41 @@ export async function buildFacilityReport(facilityId: string): Promise<Blob> {
   });
 }
 
+interface Helpers {
+  merge: (r: number, c1: number, c2: number) => void;
+  putCell: (
+    r: number,
+    c: number,
+    val: ExcelJSNS.CellValue,
+    o?: { fill?: ExcelJSNS.FillPattern; bold?: boolean; color?: string; left?: boolean },
+  ) => void;
+  fillRow: (r: number) => void;
+  addImg: (dataUrl: string, tlCol: number, tlRow: number, w: number, h: number) => void;
+}
+
 function renderStation(
+  _ExcelJS: typeof ExcelJSNS,
   wb: ExcelJSNS.Workbook,
   ws: ExcelJSNS.Worksheet,
   startRow: number,
   facility: Facility,
   st: StationFull,
   lastCol: number,
-  photoImgs: Map<string, PhotoImg>,
+  h: Helpers,
 ): number {
+  void wb;
   const first = 2;
   const setCols = (i: number) => ({ l: first + i * 3, m: first + i * 3 + 1, r: first + i * 3 + 2 });
   const colL = (n: number) => ws.getColumn(n).letter;
-  const merge = (rr: number, c1: number, c2: number) => {
-    if (c2 > c1) ws.mergeCells(rr, c1, rr, c2);
-  };
-  const put = (
-    rr: number,
-    c: number,
-    val: ExcelJSNS.CellValue,
-    o: { fill?: ExcelJSNS.FillPattern; bold?: boolean; color?: string; left?: boolean } = {},
-  ) => {
-    const cell = ws.getCell(rr, c);
-    cell.value = val;
-    cell.border = BORDER;
-    cell.alignment = o.left ? { ...CENTER, horizontal: 'left', indent: 1 } : CENTER;
-    if (o.fill) cell.fill = o.fill;
-    if (o.bold || o.color) cell.font = { bold: o.bold, color: o.color ? { argb: o.color } : undefined };
-  };
-  const rowBorders = (rr: number) => {
-    for (let c = 1; c <= lastCol; c++) if (!ws.getCell(rr, c).border) ws.getCell(rr, c).border = BORDER;
-  };
-
+  const { merge, putCell: put, fillRow: rowBorders } = h;
   const sets = st.sets;
   let r = startRow;
 
   merge(r, 1, lastCol);
-  put(
-    r,
-    1,
-    st.location ? `불연속면 특성 (${st.siteId}) : ${st.location}` : `불연속면 특성 (${st.siteId})`,
-    { fill: FILL_HEAD, bold: true },
-  );
+  put(r, 1, st.location ? `불연속면 특성 (${st.siteId}) : ${st.location}` : `불연속면 특성 (${st.siteId})`, {
+    fill: FILL_HEAD,
+    bold: true,
+  });
   ws.getRow(r).height = 22;
   r++;
 
@@ -206,8 +290,6 @@ function renderStation(
     r++;
   });
   const scoreEnd = r - 1;
-
-  // 합계 / 산술평균 / 절리상태점수 — 계산된 값 + (Excel용) 수식
   const evals = sets.map((s) => evaluateCondition(s.condition));
 
   put(r, 1, '', { fill: FILL_HEAD });
@@ -246,8 +328,9 @@ function renderStation(
   rowBorders(r);
   r++;
 
+  const rb = valueStats(st.reboundValues ?? []);
   const common: [string, string][] = [
-    ['반발경도', ''],
+    ['반발경도', rb.n > 0 ? `평균 ${rb.mean} (최소 ${rb.min} ~ 최대 ${rb.max}, ${rb.n}개)` : ''],
     ['강 도', ''],
     ['누 수', st.seepage ? SEEPAGE_LABELS[st.seepage] : '-'],
     ['암괴크기', st.blockSize ? `${st.blockSize.x}m × ${st.blockSize.y}m × ${st.blockSize.z}m` : '-'],
@@ -260,19 +343,80 @@ function renderStation(
     r++;
   }
 
+  r = renderPhotos(ws, r, st.photos, STATION_PHOTO_CATEGORIES, lastCol, h);
+  return r;
+}
+
+function renderSoil(
+  ws: ExcelJSNS.Worksheet,
+  startRow: number,
+  facility: Facility,
+  sp: SoilFull,
+  lastCol: number,
+  h: Helpers,
+): number {
+  const { merge, putCell: put, fillRow } = h;
+  let r = startRow;
+
+  merge(r, 1, lastCol);
+  put(r, 1, sp.location ? `토양경도 (${sp.pointId}) : ${sp.location}` : `토양경도 (${sp.pointId})`, {
+    fill: FILL_HEAD,
+    bold: true,
+  });
+  ws.getRow(r).height = 20;
   r++;
+
+  merge(r, 1, lastCol);
+  put(
+    r,
+    1,
+    `시설물: ${facility.name}    |    조사자: ${sp.surveyor || '-'}    |    조사일: ${new Date(
+      sp.surveyedAt,
+    ).toLocaleDateString('ko-KR')}`,
+  );
+  r++;
+
+  const st = valueStats(sp.hardnessValues ?? []);
+  const vals = (sp.hardnessValues ?? []).filter((x) => Number.isFinite(x)).join(', ');
+  const rows: [string, string][] = [
+    ['GPS', sp.gps ? `${sp.gps.lat.toFixed(6)}, ${sp.gps.lon.toFixed(6)}` : '-'],
+    ['측정값', vals || '-'],
+    ['통계', st.n > 0 ? `평균 ${st.mean} · 최소 ${st.min} · 최대 ${st.max} (${st.n}/10)` : '-'],
+  ];
+  for (const [label, val] of rows) {
+    put(r, 1, label, { fill: FILL_HEAD });
+    merge(r, 2, lastCol);
+    put(r, 2, val, { left: true });
+    fillRow(r);
+    r++;
+  }
+
+  r = renderPhotos(ws, r, sp.photos, SOIL_PHOTO_CATEGORIES, lastCol, h);
+  return r;
+}
+
+function renderPhotos(
+  ws: ExcelJSNS.Worksheet,
+  startRow: number,
+  photos: Photo[],
+  categories: readonly string[],
+  lastCol: number,
+  h: Helpers,
+): number {
+  const { merge, putCell: put, addImg } = h;
+  let r = startRow + 1;
   merge(r, 1, lastCol);
   put(r, 1, '조사 사진', { fill: FILL_HEAD, bold: true, left: true });
   r++;
 
-  const photoByCat = new Map(st.photos.map((p) => [p.category, p]));
+  const byCat = new Map(photos.filter((p) => p.dataUrl).map((p) => [p.category, p]));
   const mid = Math.floor(lastCol / 2);
   const spans: [number, number][] = [
     [1, mid],
     [mid + 1, lastCol],
   ];
   const BOX_ROWS = 9;
-  for (let rw = 0; rw < Math.ceil(PHOTO_CATEGORIES.length / 2); rw++) {
+  for (let rw = 0; rw < Math.ceil(categories.length / 2); rw++) {
     const boxTop = r;
     for (let k = 0; k < BOX_ROWS; k++) {
       ws.getRow(r).height = 18;
@@ -282,8 +426,8 @@ function renderStation(
     r++;
     for (let col = 0; col < 2; col++) {
       const idx = rw * 2 + col;
-      if (idx >= PHOTO_CATEGORIES.length) continue;
-      const cat = PHOTO_CATEGORIES[idx];
+      if (idx >= categories.length) continue;
+      const cat = categories[idx];
       const [c1, c2] = spans[col];
       ws.mergeCells(boxTop, c1, boxTop + BOX_ROWS - 1, c2);
       const box = ws.getCell(boxTop, c1);
@@ -292,22 +436,9 @@ function renderStation(
       for (let rr = boxTop; rr <= boxTop + BOX_ROWS - 1; rr++)
         for (let cc = c1; cc <= c2; cc++) ws.getCell(rr, cc).border = BORDER;
 
-      const photo = photoByCat.get(cat);
-      const img = photo ? photoImgs.get(photo.id) : undefined;
-      if (img) {
-        try {
-          const id = wb.addImage({ buffer: img.buffer, extension: img.extension });
-          ws.addImage(id, {
-            tl: { col: c1 - 1 + 0.15, row: boxTop - 1 + 0.15 } as ExcelJSNS.Anchor,
-            ext: { width: 240, height: 150 },
-            editAs: 'oneCell',
-          });
-        } catch {
-          box.value = '［ 사진 삽입 실패 ］';
-        }
-      } else {
-        box.value = '［ 사진 없음 ］';
-      }
+      const photo = byCat.get(cat);
+      if (photo?.dataUrl) addImg(photo.dataUrl, c1, boxTop, 240, 150);
+      else box.value = '［ 사진 없음 ］';
 
       ws.mergeCells(capRow, c1, capRow, c2);
       const cap = ws.getCell(capRow, c1);
@@ -318,7 +449,6 @@ function renderStation(
       cap.border = BORDER;
     }
   }
-
   return r;
 }
 

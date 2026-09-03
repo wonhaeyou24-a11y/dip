@@ -602,34 +602,100 @@ button.full {
   font-size: 16px;
 }
 
-/* ── map ── */
-.map {
-  height: 240px;
+/* ── 조사점 위치도 (canvas) ── */
+.pointmap {
+  width: 100%;
   border-radius: 12px;
   overflow: hidden;
-  background: var(--card-2);
-  position: relative;
-  z-index: 0;
-  isolation: isolate;
+  background: #fff;
+  border: 0.5px solid var(--sep);
 }
-.map-pin span {
+.pointmap canvas {
+  display: block;
+  width: 100%;
+}
+.lg {
+  display: inline-block;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  vertical-align: -1px;
+  border: 1.5px solid #fff;
+}
+.lg.station {
+  background: #007aff;
+}
+.lg.soil {
+  background: #ff9500;
+}
+
+/* ── 다중 값 입력 (반발경도 / 토양경도) ── */
+.mvi {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.mvi-tabs {
+  display: flex;
+  gap: 4px;
+  background: var(--card-2);
+  border-radius: 9px;
+  padding: 3px;
+}
+.mvi-tab {
+  flex: 1;
+  padding: 8px;
+  font-size: 13px;
+  background: transparent;
+  color: var(--text-2);
+  border-radius: 7px;
+}
+.mvi-tab.on {
+  background: var(--card);
+  color: var(--text);
+  font-weight: 600;
+}
+.mvi-range {
   display: flex;
   align-items: center;
-  justify-content: center;
-  width: 26px;
-  height: 26px;
-  border-radius: 50%;
-  background: var(--tint);
-  color: #fff;
-  font-weight: 700;
-  font-size: 12px;
-  border: 2px solid #fff;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+  gap: 8px;
 }
-.leaflet-container {
+.mvi-range input {
+  width: 74px;
   background: var(--card-2);
-  font: inherit;
+  border-radius: 8px;
+  padding: 9px 8px;
+  text-align: center;
 }
+.mvi-range button {
+  flex: 1;
+  padding: 10px;
+}
+.mvi-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 6px;
+}
+.mvi-grid input {
+  background: var(--card-2);
+  border-radius: 8px;
+  padding: 8px 4px;
+  text-align: center;
+  min-width: 0;
+}
+.mvi-stats {
+  margin: 0;
+}
+
+/* ── 시설물명 등 넓은 텍스트 필드 ── */
+.text-field {
+  width: 100%;
+  background: var(--card-2);
+  border-radius: 8px;
+  padding: 11px 12px;
+  text-align: left;
+}
+
 img {
   max-width: 100%;
 }
