@@ -109,6 +109,14 @@ export function startOrientation(onSample: (s: OrientationSample) => void): () =
   return () => window.removeEventListener(eventName, handler as EventListener, true);
 }
 
+/** 샘플로부터 "폰이 향한 방위"(참고용 미니 나침반) 계산 — 자북 샘플은 편각 보정. */
+export function sampleHeadingDeg(s: OrientationSample, declinationDeg: number): number | null {
+  if (s.headingSource === 'relative') return null;
+  const norm = (d: number) => ((d % 360) + 360) % 360;
+  if (s.headingSource === 'true') return norm(360 - s.alpha);
+  return norm(s.alpha + declinationDeg);
+}
+
 export interface CollectResult {
   samples: OrientationSample[];
   /** 수집 중 relative(나침반 불가) 샘플이 하나라도 있었는지 */

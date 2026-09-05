@@ -678,6 +678,9 @@ details > summary::-webkit-details-marker {
 .lg.soil {
   background: #ff9500;
 }
+.lg.me {
+  background: #4285f4;
+}
 
 /* ── 다중 값 입력 (반발경도 / 토양경도) ── */
 .mvi {

@@ -221,7 +221,8 @@ export function FacilityScreen() {
           }
         />
         <p className="muted" style={{ marginTop: 6 }}>
-          <span className="lg station" /> 측점 &nbsp; <span className="lg soil" /> 토양경도
+          <span className="lg station" /> 측점 &nbsp; <span className="lg soil" /> 토양경도 &nbsp;{' '}
+          <span className="lg me" /> 내 위치
         </p>
       </div>
 
