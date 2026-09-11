@@ -68,7 +68,7 @@ body {
 }
 .app-header-row {
   display: grid;
-  grid-template-columns: 52px 1fr 52px;
+  grid-template-columns: 56px 1fr 56px;
   align-items: center;
   min-height: 46px;
   padding: 5px 8px;
@@ -107,26 +107,31 @@ body {
 .home {
   display: inline-flex;
   align-items: center;
-  gap: 2px;
-  background: transparent;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: var(--card-2);
   border: 0;
   color: var(--tint);
-  font-size: 17px;
-  padding: 6px;
+  padding: 0;
   text-decoration: none;
   cursor: pointer;
+  box-shadow: var(--shadow-xs);
 }
 .back {
-  font-size: 26px;
+  font-size: 32px;
   line-height: 1;
   justify-self: start;
 }
 .home {
   justify-self: end;
-  font-size: 20px;
+  font-size: 22px;
 }
 .back[aria-hidden] {
   visibility: hidden;
+  box-shadow: none;
+  background: transparent;
 }
 
 .app-body {
@@ -717,6 +722,9 @@ details > summary::-webkit-details-marker {
 }
 
 /* ── 조사점 위치도 (Leaflet) ── */
+.map-wrap {
+  position: relative;
+}
 .map {
   height: 260px;
   border-radius: 12px;
@@ -726,6 +734,22 @@ details > summary::-webkit-details-marker {
   z-index: 0;
   isolation: isolate;
   box-shadow: var(--inset-sm);
+}
+.map-locate {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  z-index: 400;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--card);
+  color: var(--tint);
+  box-shadow: var(--shadow-sm);
 }
 .leaflet-container {
   background: var(--card-2);

@@ -1,6 +1,6 @@
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { fitToPoints, pinIcon, type MapPoint } from '../lib/leafletMap';
 
@@ -17,6 +17,8 @@ export function PointMap({ points, linkFor }: Props) {
   const meLayerRef = useRef<L.LayerGroup | null>(null);
   const centeredOnMeRef = useRef(false);
   const hasGpsRef = useRef(false);
+  const myPosRef = useRef<{ lat: number; lon: number } | null>(null);
+  const [locating, setLocating] = useState(false);
   const navigate = useNavigate();
 
   const key = points
@@ -66,6 +68,7 @@ export function PointMap({ points, linkFor }: Props) {
         const layer = meLayerRef.current;
         if (!map || !layer) return;
         const { latitude, longitude, accuracy } = pos.coords;
+        myPosRef.current = { lat: latitude, lon: longitude };
         layer.clearLayers();
         L.circle([latitude, longitude], {
           radius: accuracy,
@@ -94,9 +97,46 @@ export function PointMap({ points, linkFor }: Props) {
     return () => navigator.geolocation.clearWatch(watchId);
   }, []);
 
+  const goToMyLocation = () => {
+    const map = mapRef.current;
+    if (!map || typeof navigator === 'undefined' || !navigator.geolocation) return;
+    if (myPosRef.current) {
+      map.setView([myPosRef.current.lat, myPosRef.current.lon], Math.max(map.getZoom(), 16));
+      return;
+    }
+    setLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const { latitude, longitude } = pos.coords;
+        myPosRef.current = { lat: latitude, lon: longitude };
+        map.setView([latitude, longitude], 16);
+        setLocating(false);
+      },
+      () => setLocating(false),
+      { enableHighAccuracy: true, timeout: 10000 },
+    );
+  };
+
   return (
     <div>
-      <div ref={elRef} className="map" />
+      <div className="map-wrap">
+        <div ref={elRef} className="map" />
+        <button
+          type="button"
+          className="map-locate"
+          onClick={goToMyLocation}
+          disabled={locating}
+          aria-label="내 위치로"
+        >
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round">
+            <circle cx="12" cy="12" r="3" fill="currentColor" stroke="none" />
+            <line x1="12" y1="2" x2="12" y2="5" />
+            <line x1="12" y1="19" x2="12" y2="22" />
+            <line x1="2" y1="12" x2="5" y2="12" />
+            <line x1="19" y1="12" x2="22" y2="12" />
+          </svg>
+        </button>
+      </div>
       {!hasGps && (
         <p className="muted" style={{ marginTop: 6 }}>
           GPS가 기록된 조사점이 없습니다.
