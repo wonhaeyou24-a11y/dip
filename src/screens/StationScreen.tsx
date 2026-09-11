@@ -138,6 +138,44 @@ export function StationScreen() {
         </div>
       </div>
 
+      <button
+        className="primary"
+        onClick={async () => {
+          const id = await createSet(sid);
+          navigate(`/f/${fid}/s/${sid}/set/${id}`);
+        }}
+      >
+        ＋ 절리군(Set) 추가
+      </button>
+
+      <div className="card">
+        <h2>절리군 ({sets.length})</h2>
+        {sets.length === 0 && <p className="muted">절리군을 추가하세요.</p>}
+        <div className="list">
+          {sets.map((s) => (
+            <div className="list-item" key={s.id}>
+              <Link to={`/f/${fid}/s/${sid}/set/${s.id}`} className="list-main">
+                <strong>
+                  {s.name} · {s.dtype}
+                </strong>
+                <span className="muted">
+                  {s.orientation ? formatDipDipDir(s.orientation) : '방향성 미측정'} ·{' '}
+                  {s.condition.complete ? `절리상태 ${s.condition.score}` : '절리상태 미완'}
+                </span>
+              </Link>
+              <button
+                className="link-danger"
+                onClick={() => {
+                  if (confirm(`"${s.name}" 삭제`)) void deleteSetCascade(s.id);
+                }}
+              >
+                삭제
+              </button>
+            </div>
+          ))}
+        </div>
+      </div>
+
       <div className="card">
         <h2>측점 공통</h2>
         <div className="rows">
@@ -183,44 +221,6 @@ export function StationScreen() {
           onChange={(v) => save({ reboundValues: v })}
         />
         <p className="hint">강도(MPa)는 결과보고에 빈칸으로 출력됩니다 (사무실 기입).</p>
-      </div>
-
-      <button
-        className="primary"
-        onClick={async () => {
-          const id = await createSet(sid);
-          navigate(`/f/${fid}/s/${sid}/set/${id}`);
-        }}
-      >
-        ＋ 절리군(Set) 추가
-      </button>
-
-      <div className="card">
-        <h2>절리군 ({sets.length})</h2>
-        {sets.length === 0 && <p className="muted">절리군을 추가하세요.</p>}
-        <div className="list">
-          {sets.map((s) => (
-            <div className="list-item" key={s.id}>
-              <Link to={`/f/${fid}/s/${sid}/set/${s.id}`} className="list-main">
-                <strong>
-                  {s.name} · {s.dtype}
-                </strong>
-                <span className="muted">
-                  {s.orientation ? formatDipDipDir(s.orientation) : '방향성 미측정'} ·{' '}
-                  {s.condition.complete ? `절리상태 ${s.condition.score}` : '절리상태 미완'}
-                </span>
-              </Link>
-              <button
-                className="link-danger"
-                onClick={() => {
-                  if (confirm(`"${s.name}" 삭제`)) void deleteSetCascade(s.id);
-                }}
-              >
-                삭제
-              </button>
-            </div>
-          ))}
-        </div>
       </div>
 
       <div className="card">

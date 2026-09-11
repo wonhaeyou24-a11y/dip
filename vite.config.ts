@@ -40,7 +40,7 @@ export default defineConfig(({ command }) => ({
       devOptions: { enabled: false },
     }),
   ],
-  server: { host: true, port: 5173 },
+  server: { host: true, port: Number((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env.PORT) || 5173 },
   test: {
     environment: 'node',
     include: ['src/**/*.test.ts'],

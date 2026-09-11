@@ -10,8 +10,10 @@ interface Props {
 
 const RED = '#e11d2e';
 const CX = 120;
-const CY = 120;
-const R = 96;
+const CY = 104;
+const R = 84;
+const VIEW_W = 240;
+const VIEW_H = 284;
 
 function toXY(cx: number, cy: number, r: number, deg: number): [number, number] {
   const rad = (deg * Math.PI) / 180;
@@ -70,14 +72,19 @@ export function CompassDial({ dip, dipDirection, heading, quality, size = 240 }:
   const [p1x, p1y] = has ? toXY(CX, CY, R, strikeDeg) : [CX, CY];
   const [p2x, p2y] = has ? toXY(CX, CY, R, strikeDeg + 180) : [CX, CY];
 
-  const mx = 38;
-  const my = 202;
-  const mr = 26;
+  // 메인 다이얼 바깥쪽, 아래 여백에 배치 — 스템/크로스바(최대 반경 R)가 절대 닿지 않는 위치
+  const mx = 46;
+  const my = CY + R + 40;
+  const mr = 22;
   const hd = heading ?? null;
-  const hArrow = hd != null ? toXY(mx, my, 18, hd) : null;
+  const hArrow = hd != null ? toXY(mx, my, 16, hd) : null;
 
   return (
-    <svg viewBox="0 0 240 240" width="100%" style={{ maxWidth: size, display: 'block', margin: '0 auto' }}>
+    <svg
+      viewBox={`0 0 ${VIEW_W} ${VIEW_H}`}
+      width="100%"
+      style={{ maxWidth: size, display: 'block', margin: '0 auto' }}
+    >
       <circle cx={CX} cy={CY} r={R} fill="var(--card)" stroke="var(--sep)" strokeWidth={1} />
       {ticks}
       <circle cx={CX} cy={CY} r={2.5} fill="var(--text-3)" />
@@ -103,6 +110,7 @@ export function CompassDial({ dip, dipDirection, heading, quality, size = 240 }:
 
       {/* 참고용 미니 나침반: 폰이 향한 방위 */}
       <circle cx={mx} cy={my} r={mr} fill="var(--card)" stroke="var(--sep)" />
+      <line x1={mx} y1={my - mr} x2={mx} y2={my - mr + 5} stroke="var(--text-3)" strokeWidth={1.5} />
       {hArrow && (
         <line x1={mx} y1={my} x2={hArrow[0]} y2={hArrow[1]} stroke={RED} strokeWidth={3} strokeLinecap="round" />
       )}

@@ -141,16 +141,6 @@ export function FacilityScreen() {
         ＋ 측점 추가
       </button>
 
-      <button
-        className="primary"
-        onClick={async () => {
-          const id = await createSoilPoint(fid);
-          navigate(`/f/${fid}/soil/${id}`);
-        }}
-      >
-        ＋ 토양경도 추가
-      </button>
-
       <div className="card">
         <h2>측점 ({orderedStations.length})</h2>
         {orderedStations.length === 0 && <p className="muted">측점을 추가하세요.</p>}
@@ -180,6 +170,16 @@ export function FacilityScreen() {
           ))}
         </div>
       </div>
+
+      <button
+        className="primary"
+        onClick={async () => {
+          const id = await createSoilPoint(fid);
+          navigate(`/f/${fid}/soil/${id}`);
+        }}
+      >
+        ＋ 토양경도 추가
+      </button>
 
       <div className="card">
         <h2>토양경도 ({soils.length})</h2>
