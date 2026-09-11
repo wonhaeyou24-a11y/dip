@@ -21,6 +21,20 @@ interface Props {
 
 const STAGES: Stage[] = [1, 2, 3, 4, 5];
 
+const ITEM_ACCENTS: Record<ConditionItemKey, string> = {
+  persistence: '#007aff',
+  aperture: '#5856d6',
+  roughness: '#34c759',
+  infilling: '#ff9500',
+  weathering: '#ff375f',
+};
+
+/** "① 연장성" → ["①", "연장성"] — 표시용으로만 분리 (Excel 출력은 ITEM_NAMES 원문 그대로 사용) */
+function splitItemName(name: string): [string, string] {
+  const i = name.indexOf(' ');
+  return i === -1 ? ['', name] : [name.slice(0, i), name.slice(i + 1)];
+}
+
 export function ConditionForm({ value, onChange }: Props) {
   const patch = (p: Partial<Condition>) => onChange(withScores({ ...value, ...p }));
 
@@ -43,10 +57,15 @@ export function ConditionForm({ value, onChange }: Props) {
       {CONDITION_ITEMS.map((key) => {
         const item = value[key];
         const labels = ITEM_LABELS[key];
+        const [num, title] = splitItemName(ITEM_NAMES[key]);
+        const accent = ITEM_ACCENTS[key];
         return (
-          <div className="cond-item" key={key}>
+          <div className="cond-item" key={key} style={{ '--accent': accent } as React.CSSProperties}>
             <div className="cond-head">
-              <strong>{ITEM_NAMES[key]}</strong>
+              <span className="cond-title">
+                <span className="cond-num">{num}</span>
+                {title}
+              </span>
               {item && (
                 <span className="pill">
                   {item.stage}단계 · {item.score}점
