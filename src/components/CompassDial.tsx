@@ -85,7 +85,15 @@ export function CompassDial({ dip, dipDirection, heading, quality, size = 240 }:
       width="100%"
       style={{ maxWidth: size, display: 'block', margin: '0 auto' }}
     >
-      <circle cx={CX} cy={CY} r={R} fill="var(--card)" stroke="var(--sep)" strokeWidth={1} />
+      <circle
+        cx={CX}
+        cy={CY}
+        r={R}
+        fill="var(--card)"
+        stroke="var(--sep)"
+        strokeWidth={1}
+        style={{ filter: 'drop-shadow(0 3px 8px rgba(0,0,0,0.12))' }}
+      />
       {ticks}
       <circle cx={CX} cy={CY} r={2.5} fill="var(--text-3)" />
 
@@ -109,7 +117,14 @@ export function CompassDial({ dip, dipDirection, heading, quality, size = 240 }:
       )}
 
       {/* 참고용 미니 나침반: 폰이 향한 방위 */}
-      <circle cx={mx} cy={my} r={mr} fill="var(--card)" stroke="var(--sep)" />
+      <circle
+        cx={mx}
+        cy={my}
+        r={mr}
+        fill="var(--card)"
+        stroke="var(--sep)"
+        style={{ filter: 'drop-shadow(0 2px 5px rgba(0,0,0,0.12))' }}
+      />
       <line x1={mx} y1={my - mr} x2={mx} y2={my - mr + 5} stroke="var(--text-3)" strokeWidth={1.5} />
       {hArrow && (
         <line x1={mx} y1={my} x2={hArrow[0]} y2={hArrow[1]} stroke={RED} strokeWidth={3} strokeLinecap="round" />
