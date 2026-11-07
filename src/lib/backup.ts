@@ -3,13 +3,14 @@
  * 사진이 data URL 문자열이라 그대로 직렬화됨 — 별도 변환 불필요.
  */
 
-import { db } from '../db/db';
+import { adoptOrphanFacilities, db } from '../db/db';
 
 const MAGIC = 'dip-backup';
-const VERSION = 2;
+const VERSION = 3;
 
 export async function exportBackup(): Promise<Blob> {
-  const [facilities, stations, soils, sets, measurements, photos] = await Promise.all([
+  const [projects, facilities, stations, soils, sets, measurements, photos] = await Promise.all([
+    db.projects.toArray(),
     db.facilities.toArray(),
     db.stations.toArray(),
     db.soils.toArray(),
@@ -31,12 +32,13 @@ export async function exportBackup(): Promise<Blob> {
     magic: MAGIC,
     version: VERSION,
     exportedAt: Date.now(),
-    data: { facilities, stations, soils, sets, measurements, photos: cleanPhotos },
+    data: { projects, facilities, stations, soils, sets, measurements, photos: cleanPhotos },
   };
   return new Blob([JSON.stringify(payload)], { type: 'application/json' });
 }
 
 export interface ImportResult {
+  projects: number;
   facilities: number;
   stations: number;
   soils: number;
@@ -53,8 +55,9 @@ export async function importBackup(file: File): Promise<ImportResult> {
 
   await db.transaction(
     'rw',
-    [db.facilities, db.stations, db.soils, db.sets, db.measurements, db.photos],
+    [db.projects, db.facilities, db.stations, db.soils, db.sets, db.measurements, db.photos],
     async () => {
+      await db.projects.bulkPut(d.projects ?? []);
       await db.facilities.bulkPut(d.facilities ?? []);
       await db.stations.bulkPut(d.stations ?? []);
       await db.soils.bulkPut(d.soils ?? []);
@@ -64,7 +67,11 @@ export async function importBackup(file: File): Promise<ImportResult> {
     },
   );
 
+  // 프로젝트가 없는 구버전(v2) 백업의 시설물은 "기본 프로젝트"로 묶는다
+  await adoptOrphanFacilities();
+
   return {
+    projects: (d.projects ?? []).length,
     facilities: (d.facilities ?? []).length,
     stations: (d.stations ?? []).length,
     soils: (d.soils ?? []).length,

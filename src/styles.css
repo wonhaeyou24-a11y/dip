@@ -902,3 +902,12 @@ details > summary::-webkit-details-marker {
 img {
   max-width: 100%;
 }
+
+/* 전차 시험 현황 (프로젝트·시설물 화면) */
+.prior-item { border-top: 1px solid var(--line, #e5e7eb); }
+.prior-item:first-child { border-top: none; }
+.prior-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; width: 100%; text-align: left; background: none; border: 0; padding: 10px 2px; font: inherit; cursor: pointer; }
+.prior-body { padding: 0 2px 10px; }
+.prior-scroll { overflow: auto; max-height: 320px; border: 1px solid var(--line, #e5e7eb); border-radius: 8px; }
+.prior-table { border-collapse: collapse; font-size: 12px; min-width: 100%; }
+.prior-table td { border: 1px solid var(--line, #e5e7eb); padding: 3px 6px; white-space: pre-wrap; vertical-align: top; }

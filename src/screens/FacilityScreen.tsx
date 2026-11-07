@@ -2,6 +2,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { PointMap } from '../components/PointMap';
+import { PriorPanel } from '../components/PriorPanel';
 import { StickyBar, flushAndRun } from '../components/StickyBar';
 import {
   createSoilPoint,
@@ -57,6 +58,15 @@ export function FacilityScreen() {
 
   const orderedStations = [...stations].sort((a, b) => a.createdAt - b.createdAt);
   const hasData = orderedStations.length + soils.length > 0;
+  // 금회 조사 항목을 고르면 그 항목의 입력 버튼만 보인다(고르기 전에는 모두 보임)
+  const plan = facility.plan ?? [];
+  const showStationBtn = plan.length === 0 || plan.includes('discontinuity') || plan.includes('rebound');
+  const showSoilBtn = plan.length === 0 || plan.includes('soil');
+  const counts = {
+    discontinuity: sets.length,
+    rebound: orderedStations.filter((s) => (s.reboundValues ?? []).some((v) => Number.isFinite(v))).length,
+    soil: soils.length,
+  };
 
   const mapPoints: MapPoint[] = [
     ...orderedStations
@@ -131,15 +141,19 @@ export function FacilityScreen() {
         />
       </div>
 
-      <button
-        className="primary"
-        onClick={async () => {
-          const id = await createStation(fid);
-          navigate(`/f/${fid}/s/${id}`);
-        }}
-      >
-        ＋ 측점 추가
-      </button>
+      <PriorPanel facility={facility} counts={counts} />
+
+      {showStationBtn && (
+        <button
+          className="primary"
+          onClick={async () => {
+            const id = await createStation(fid);
+            navigate(`/f/${fid}/s/${id}`);
+          }}
+        >
+          ＋ 측점 추가 (불연속면·암반 반발경도)
+        </button>
+      )}
 
       <div className="card">
         <h2>측점 ({orderedStations.length})</h2>
@@ -171,15 +185,17 @@ export function FacilityScreen() {
         </div>
       </div>
 
-      <button
-        className="primary"
-        onClick={async () => {
-          const id = await createSoilPoint(fid);
-          navigate(`/f/${fid}/soil/${id}`);
-        }}
-      >
-        ＋ 토양경도 추가
-      </button>
+      {showSoilBtn && (
+        <button
+          className="primary"
+          onClick={async () => {
+            const id = await createSoilPoint(fid);
+            navigate(`/f/${fid}/soil/${id}`);
+          }}
+        >
+          ＋ 토양경도 추가
+        </button>
+      )}
 
       <div className="card">
         <h2>토양경도 ({soils.length})</h2>
@@ -259,7 +275,10 @@ export function FacilityScreen() {
       </div>
 
       <StickyBar>
-        <button className="primary" onClick={() => flushAndRun(() => navigate('/'))}>
+        <button
+          className="primary"
+          onClick={() => flushAndRun(() => navigate(facility.projectId ? `/p/${facility.projectId}` : '/'))}
+        >
           저장하고 시설물 목록
         </button>
       </StickyBar>

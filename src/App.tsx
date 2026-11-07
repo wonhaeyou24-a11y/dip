@@ -7,8 +7,9 @@ import {
   useLocation,
   useNavigate,
 } from 'react-router-dom';
-import { FacilitiesScreen } from './screens/FacilitiesScreen';
 import { FacilityScreen } from './screens/FacilityScreen';
+import { ProjectScreen } from './screens/ProjectScreen';
+import { ProjectsScreen } from './screens/ProjectsScreen';
 import { SetScreen } from './screens/SetScreen';
 import { SoilScreen } from './screens/SoilScreen';
 import { StationScreen } from './screens/StationScreen';
@@ -27,7 +28,7 @@ function ScrollToTop() {
 function Shell({ title, children }: { title: string; children: React.ReactNode }) {
   const navigate = useNavigate();
   const { subtitle } = useHeader();
-  const atRoot = title === '시설물';
+  const atRoot = title === '프로젝트';
   return (
     <div className="app">
       <header className="app-header">
@@ -68,8 +69,16 @@ export default function App() {
         <Route
           path="/"
           element={
-            <Shell title="시설물">
-              <FacilitiesScreen />
+            <Shell title="프로젝트">
+              <ProjectsScreen />
+            </Shell>
+          }
+        />
+        <Route
+          path="/p/:pid"
+          element={
+            <Shell title="시설물 목록">
+              <ProjectScreen />
             </Shell>
           }
         />
@@ -108,8 +117,8 @@ export default function App() {
         <Route
           path="*"
           element={
-            <Shell title="시설물">
-              <FacilitiesScreen />
+            <Shell title="프로젝트">
+              <ProjectsScreen />
             </Shell>
           }
         />

@@ -1,24 +1,29 @@
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useEffect, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { BUILD_ID } from '../components/UpdatePrompt';
 import { exportBackup, importBackup } from '../lib/backup';
 import { downloadBlob } from '../lib/download';
 import {
-  createFacility,
+  adoptOrphanFacilities,
+  createProject,
   db,
-  deleteFacilityCascade,
+  deleteProjectCascade,
   ensurePersistentStorage,
-  type Facility,
+  type Project,
   type StorageStatus,
 } from '../db/db';
 
-export function FacilitiesScreen() {
-  const facilities = useLiveQuery(
-    () => db.facilities.orderBy('updatedAt').reverse().toArray(),
-    [],
-    [] as Facility[],
-  );
+/** 첫 화면: 프로젝트(용역) 목록 */
+export function ProjectsScreen() {
+  const navigate = useNavigate();
+  const projects = useLiveQuery(() => db.projects.orderBy('updatedAt').reverse().toArray(), [], [] as Project[]);
+  const counts = useLiveQuery(async () => {
+    const facs = await db.facilities.toArray();
+    const m = new Map<string, number>();
+    for (const f of facs) if (f.projectId) m.set(f.projectId, (m.get(f.projectId) ?? 0) + 1);
+    return m;
+  }, [], new Map<string, number>());
   const [name, setName] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
@@ -27,12 +32,14 @@ export function FacilitiesScreen() {
 
   useEffect(() => {
     void ensurePersistentStorage().then(setStorage);
+    void adoptOrphanFacilities(); // 프로젝트 없이 남은 시설물이 있으면 "기본 프로젝트"로 묶는다
   }, []);
 
   const add = async () => {
     if (!name.trim()) return;
-    await createFacility(name);
+    const id = await createProject(name);
     setName('');
+    navigate(`/p/${id}`);
   };
 
   const doExport = async () => {
@@ -54,9 +61,7 @@ export function FacilitiesScreen() {
     setMsg(null);
     try {
       const r = await importBackup(file);
-      setMsg(
-        `복원 완료 · 측점 ${r.stations} · 토양경도 ${r.soils} · 절리군 ${r.sets} · 사진 ${r.photos}`,
-      );
+      setMsg(`복원 완료 · 시설물 ${r.facilities} · 측점 ${r.stations} · 토양경도 ${r.soils} · 절리군 ${r.sets} · 사진 ${r.photos}`);
     } catch (e) {
       setMsg(e instanceof Error ? e.message : '복원 실패');
     } finally {
@@ -67,12 +72,12 @@ export function FacilitiesScreen() {
   return (
     <>
       <div className="card">
-        <h2>새 시설물</h2>
+        <h2>새 프로젝트</h2>
         <div className="btn-row">
           <input
             type="text"
             className="text-field"
-            placeholder="시설물명 (예: ○○터널 절취사면)"
+            placeholder="프로젝트명 (예: 2026년 비탈면 정밀안전점검)"
             value={name}
             onChange={(e) => setName(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && add()}
@@ -80,6 +85,33 @@ export function FacilitiesScreen() {
           <button className="primary" style={{ width: 'auto', flex: '0 0 auto' }} onClick={add}>
             추가
           </button>
+        </div>
+      </div>
+
+      <div className="card">
+        <h2>프로젝트 ({projects.length})</h2>
+        {projects.length === 0 && <p className="muted">등록된 프로젝트가 없습니다.</p>}
+        <div className="list">
+          {projects.map((p) => (
+            <div className="list-item" key={p.id}>
+              <Link to={`/p/${p.id}`} className="list-main">
+                <strong>{p.name}</strong>
+                <span className="muted">
+                  시설물 {counts.get(p.id) ?? 0}개 · {new Date(p.updatedAt).toLocaleDateString()}
+                </span>
+              </Link>
+              <button
+                className="link-danger"
+                onClick={() => {
+                  if (confirm(`"${p.name}" 및 하위 시설물·측점·절리군·사진을 모두 삭제합니다.`)) {
+                    void deleteProjectCascade(p.id);
+                  }
+                }}
+              >
+                삭제
+              </button>
+            </div>
+          ))}
         </div>
       </div>
 
@@ -109,31 +141,6 @@ export function FacilitiesScreen() {
             {msg}
           </p>
         )}
-      </div>
-
-      <div className="card">
-        <h2>시설물 ({facilities.length})</h2>
-        {facilities.length === 0 && <p className="muted">등록된 시설물이 없습니다.</p>}
-        <div className="list">
-          {facilities.map((f) => (
-            <div className="list-item" key={f.id}>
-              <Link to={`/f/${f.id}`} className="list-main">
-                <strong>{f.name}</strong>
-                <span className="muted">{new Date(f.updatedAt).toLocaleDateString()}</span>
-              </Link>
-              <button
-                className="link-danger"
-                onClick={() => {
-                  if (confirm(`"${f.name}" 및 하위 측점·절리군·사진을 모두 삭제합니다.`)) {
-                    void deleteFacilityCascade(f.id);
-                  }
-                }}
-              >
-                삭제
-              </button>
-            </div>
-          ))}
-        </div>
       </div>
 
       <p className="build-line">

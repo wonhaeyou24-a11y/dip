@@ -44,11 +44,53 @@ export const SOIL_PHOTO_CATEGORIES = ['토양경도 조사 사진 ①', '토양�
 
 export type OwnerType = 'station' | 'soil';
 
-export interface Facility {
+/** 프로젝트(용역) — 시설물을 묶는 단위 */
+export interface Project {
   id: string;
   name: string;
   client?: string;
   note?: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/** 금회 조사 항목(이 앱이 입력받는 시험·조사) */
+export type TestKind = 'discontinuity' | 'rebound' | 'soil';
+
+/** 전차(사전조사)에서 가져온 시험 표 한 개 — 원문 표를 그대로 보관한다(읽기 전용) */
+export interface PriorTest {
+  id: string;
+  /** 전차자료정리가 분류한 시험 종류 (예: 계획선형오차, 반발경도, 토양경도, 불연속면 …) */
+  category: string;
+  title: string;
+  section?: string;
+  before?: string[];
+  after?: string[];
+  grid: string[][];
+  /** 출처 문서·표 번호 */
+  source?: string;
+}
+
+export interface PriorData {
+  /** 가져온 파일 이름 */
+  source: string;
+  importedAt: number;
+  facilityNo?: string;
+  ledger?: Record<string, unknown>;
+  tests: PriorTest[];
+}
+
+export interface Facility {
+  id: string;
+  /** 소속 프로젝트 (구버전 자료는 "기본 프로젝트"로 자동 배정) */
+  projectId?: string;
+  name: string;
+  client?: string;
+  note?: string;
+  /** 전차(사전조사) 시험 자료 */
+  prior?: PriorData;
+  /** 금회 조사할 항목 (전차 자료를 보고 선택) */
+  plan?: TestKind[];
   createdAt: number;
   updatedAt: number;
 }
@@ -152,6 +194,7 @@ export interface Photo {
 }
 
 class AppDB extends Dexie {
+  projects!: EntityTable<Project, 'id'>;
   facilities!: EntityTable<Facility, 'id'>;
   stations!: EntityTable<Station, 'id'>;
   soils!: EntityTable<SoilPoint, 'id'>;
@@ -190,6 +233,19 @@ class AppDB extends Dexie {
         });
     this.version(2).stores(v2v3Stores).upgrade(ownerMigration);
     this.version(3).stores(v2v3Stores).upgrade(ownerMigration);
+    // v4: 프로젝트. 이미 있는 시설물은 "기본 프로젝트"로 묶는다(자료는 그대로).
+    this.version(4)
+      .stores({ ...v2v3Stores, projects: 'id, updatedAt', facilities: 'id, projectId, updatedAt' })
+      .upgrade(async (tx) => {
+        const facs = await tx.table('facilities').toArray();
+        if (!facs.length) return;
+        const now = Date.now();
+        const id = uid();
+        await tx.table('projects').add({ id, name: '기본 프로젝트', createdAt: now, updatedAt: now });
+        await tx.table('facilities').toCollection().modify((f: { projectId?: string }) => {
+          if (!f.projectId) f.projectId = id;
+        });
+      });
   }
 }
 
@@ -266,10 +322,34 @@ export async function ensurePersistentStorage(): Promise<StorageStatus> {
 // 생성 헬퍼
 // ─────────────────────────────────────────────────────────────
 
-export async function createFacility(name: string): Promise<string> {
+export async function createProject(name: string): Promise<string> {
   const now = Date.now();
   const id = uid();
-  await db.facilities.add({ id, name: name.trim() || '이름없는 시설물', createdAt: now, updatedAt: now });
+  await db.projects.add({ id, name: name.trim() || '이름없는 프로젝트', createdAt: now, updatedAt: now });
+  return id;
+}
+
+export async function updateProject(id: string, patch: Partial<Project>): Promise<void> {
+  await db.projects.update(id, { ...patch, updatedAt: Date.now() });
+}
+
+/** 프로젝트 없이 만들어졌거나(백업 복원 등) 소속이 없는 시설물을 "기본 프로젝트"로 묶는다. 묶은 시설물 수를 돌려준다. */
+export async function adoptOrphanFacilities(): Promise<number> {
+  const orphans = await db.facilities.filter((f) => !f.projectId).toArray();
+  if (!orphans.length) return 0;
+  let proj = await db.projects.filter((p) => p.name === '기본 프로젝트').first();
+  if (!proj) {
+    const id = await createProject('기본 프로젝트');
+    proj = (await db.projects.get(id))!;
+  }
+  for (const f of orphans) await db.facilities.update(f.id, { projectId: proj.id });
+  return orphans.length;
+}
+
+export async function createFacility(name: string, projectId?: string): Promise<string> {
+  const now = Date.now();
+  const id = uid();
+  await db.facilities.add({ id, projectId, name: name.trim() || '이름없는 시설물', createdAt: now, updatedAt: now });
   return id;
 }
 
@@ -423,6 +503,12 @@ export async function deleteFacilityCascade(facilityId: string): Promise<void> {
       await db.facilities.delete(facilityId);
     },
   );
+}
+
+export async function deleteProjectCascade(projectId: string): Promise<void> {
+  const facs = await db.facilities.where('projectId').equals(projectId).primaryKeys();
+  for (const fid of facs) await deleteFacilityCascade(fid);
+  await db.projects.delete(projectId);
 }
 
 export async function deleteStationCascade(stationId: string): Promise<void> {
