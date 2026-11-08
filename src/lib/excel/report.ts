@@ -35,6 +35,7 @@ import {
   type ConditionItemKey,
 } from '../scoring/condition';
 import { formatDipDipDir } from '../sensors/orientation';
+import { compareWithPrior, matchPriorRebound, matchPriorSoil } from '../prior';
 
 const solidFill = (argb: string): ExcelJSNS.FillPattern => ({
   type: 'pattern',
@@ -262,7 +263,9 @@ export async function buildFacilityReport(facilityId: string): Promise<Blob> {
           st.reboundValues ?? [],
           20,
           5,
-        ) + 1;
+        );
+      const pr = matchPriorRebound(facility.prior, st);
+      r = priorLine(ctx, r, pr ? { label: `전차 ${pr.label}`, prior: pr.values, cur: st.reboundValues ?? [] } : facility.prior ? { label: '전차에 없는 측점 (추가 조사)' } : null) + 1;
     }
     r += 1;
   }
@@ -292,6 +295,8 @@ export async function buildFacilityReport(facilityId: string): Promise<Blob> {
       );
       r++;
       r = renderGridBody(ctx, r, sp.gps, sp.hardnessValues ?? [], 10, 10);
+      const ps = matchPriorSoil(facility.prior, sp);
+      r = priorLine(ctx, r, ps ? { label: `전차 ${ps.id} (${ps.pos}m${ps.soil ? ' · ' + ps.soil : ''}${ps.avg ? ' · 평균 ' + ps.avg + 'mm' : ''})`, prior: ps.values, cur: sp.hardnessValues ?? [] } : facility.prior ? { label: '전차에 없는 조사점 (추가 조사)' } : null);
       r = renderPhotos(ctx, r, sp.photos, SOIL_PHOTO_CATEGORIES) + 2;
     }
   }
@@ -305,6 +310,23 @@ export async function buildFacilityReport(facilityId: string): Promise<Blob> {
 }
 
 /** GPS 행 + 값 그리드 + 통계 행 */
+/** 전차 값과 금회 값을 한 줄로 비교해 적는다 (같은 자리 값이 다르면 "n번 전차 → 금회"로 표시). 전차가 없으면 아무것도 쓰지 않는다. */
+function priorLine(ctx: Ctx, row: number, info: { label: string; prior?: number[]; cur?: number[] } | null): number {
+  if (!info) return row;
+  let text = info.label;
+  if (info.prior) {
+    const c = compareWithPrior(info.prior, info.cur);
+    const diffs: string[] = [];
+    (info.cur ?? []).forEach((v, i) => {
+      if (Number.isFinite(v) && info.prior![i] !== v) diffs.push(`${i + 1}번 ${Number.isFinite(info.prior![i]) ? info.prior![i] : '-'}→${v}`);
+    });
+    text += ` : ${info.prior.filter((v) => Number.isFinite(v)).join(', ')}  |  ` + (c.state === 'same' ? '금회 동일' : c.state === 'changed' ? `금회 변경 ${c.changed}개 (${diffs.join(', ')})` : c.state === 'partial' ? '금회 일부 입력' : '금회 미입력');
+  }
+  mergeRow(ctx, row, 1, ctx.lastCol);
+  put(ctx, row, 1, text, { left: true, fill: solidFill('FFFFF4D6') });
+  return row + 1;
+}
+
 function renderGridBody(
   ctx: Ctx,
   startRow: number,

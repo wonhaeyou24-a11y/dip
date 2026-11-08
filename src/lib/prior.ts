@@ -6,6 +6,7 @@
  */
 import {
   createFacility,
+  createStation,
   db,
   uid,
   updateFacility,
@@ -112,6 +113,11 @@ export async function importPriorFiles(projectId: string, files: File[]): Promis
     const slope = isSlopeFacility({ name: target.name, prior: parsed.prior });
     const kinds = Array.from(new Set(parsed.prior.tests.map((t) => kindOfCategory(t.category)).filter((k): k is TestKind => !!k)));
     await updateFacility(target.id, { prior: parsed.prior, plan: target.plan ?? (slope ? kinds : []) });
+    // 전차에 측정 기록이 있던 자리는 금회 조사점·측점으로 미리 만들어 둔다 (값은 전차 값이 연하게 보임). 이미 있는 자리는 건너뜀.
+    if (slope) {
+      await createSoilPointsFromPrior(target.id);
+      await createStationsFromPrior(target.id);
+    }
     out.push({ file: file.name, ok: true, facilityName: target.name, created, tests: parsed.prior.tests.length });
   }
   return out;
@@ -143,6 +149,21 @@ export function priorSoilPositions(prior: PriorData | undefined): PriorSoilPos[]
   return out;
 }
 
+/** 전차 반발경도 측점마다 금회 측점을 만든다(같은 거리의 측점이 이미 있으면 건너뜀). 만든 개수를 돌려준다. */
+export async function createStationsFromPrior(facilityId: string): Promise<number> {
+  const f = await db.facilities.get(facilityId);
+  const recs = priorReboundRecords(f?.prior).filter((r) => r.pos !== undefined);
+  const existing = await db.stations.where('facilityId').equals(facilityId).toArray();
+  let made = 0;
+  for (const r of recs) {
+    if (existing.some((s) => s.staValue === r.pos)) continue;
+    const id = await createStation(facilityId);
+    await db.stations.update(id, { staValue: r.pos, location: `${r.pos}m` });
+    made++;
+  }
+  return made;
+}
+
 /** 전차 위치마다 금회 토양경도 조사점을 만든다(같은 거리의 점이 이미 있으면 건너뜀). 만든 개수를 돌려준다. */
 export async function createSoilPointsFromPrior(facilityId: string): Promise<number> {
   const f = await db.facilities.get(facilityId);
@@ -169,4 +190,108 @@ export async function createSoilPointsFromPrior(facilityId: string): Promise<num
     made++;
   }
   return made;
+}
+
+// ───────────── 전차 측정값 구조화 (금회 입력칸에 연하게 보여 주기 위함) ─────────────
+export interface PriorSoilRecord {
+  id: string;
+  pos: number;
+  soil: string;
+  values: number[];
+  avg: string;
+  cls: string;
+}
+
+const numOf = (c: string): number => {
+  const t = (c ?? '').replace(/,/g, '').trim();
+  return t !== '' && /^-?\d+(\.\d+)?$/.test(t) ? parseFloat(t) : NaN;
+};
+
+/** 전차 토양경도 표 → 점별 기록(위치·지반종류·측정값·평균·분류). 머리글의 "측정위치"와 "측정치"~"평균" 사이 칸을 측정값으로 읽는다. */
+export function priorSoilRecords(prior: PriorData | undefined): PriorSoilRecord[] {
+  const out: PriorSoilRecord[] = [];
+  for (const t of prior?.tests ?? []) {
+    if (kindOfCategory(t.category) !== 'soil') continue;
+    const head = t.grid.findIndex((r) => r.some((c) => /측정\s*위치/.test(c)));
+    if (head < 0) continue;
+    const h = t.grid[head];
+    const posCol = h.findIndex((c) => /측정\s*위치/.test(c));
+    const soilCol = h.findIndex((c) => /지반\s*종류/.test(c));
+    const avgCol = h.findIndex((c) => /평균/.test(c));
+    const clsCol = h.findIndex((c) => /분류/.test(c));
+    const from = h.findIndex((c, i) => i > posCol && /측정치|측정값|경도/.test(c));
+    const start = from >= 0 ? from : posCol + 1;
+    const end = avgCol > start ? avgCol : h.length;
+    for (const row of t.grid.slice(head + 1)) {
+      if (!/^SH-?\s*\d+/i.test(row[0] ?? '')) continue;
+      const pos = parseFloat((row[posCol] ?? '').replace(/[^0-9.\-]/g, ''));
+      if (!Number.isFinite(pos)) continue;
+      const values = row.slice(start, end).map(numOf).filter((v) => Number.isFinite(v));
+      out.push({ id: row[0], pos, soil: soilCol >= 0 ? row[soilCol] ?? '' : '', values, avg: avgCol >= 0 ? row[avgCol] ?? '' : '', cls: clsCol >= 0 ? row[clsCol] ?? '' : '' });
+    }
+    if (out.length) break;
+  }
+  return out;
+}
+
+/** 금회 토양경도 점에 대응하는 전차 기록: 거리(m)가 같으면(0.5m 이내) 그 점, 없으면 ID(SH-n)가 같은 점 */
+export function matchPriorSoil(prior: PriorData | undefined, sp: { staValue?: number; pointId: string }): PriorSoilRecord | undefined {
+  const recs = priorSoilRecords(prior);
+  if (sp.staValue !== undefined) {
+    const hit = recs.find((r) => Math.abs(r.pos - sp.staValue!) < 0.5);
+    if (hit) return hit;
+  }
+  const norm = (x: string) => x.replace(/[\s\-]/g, '').toUpperCase();
+  return recs.find((r) => norm(r.id) === norm(sp.pointId));
+}
+
+export interface PriorRebound {
+  label: string;
+  pos?: number;
+  values: number[];
+}
+
+/** 전차 반발경도 표 → 측점별 R 값. 머리글에 위치/측점 칸이 있고, 같은 줄에 숫자가 5개 이상이면 측정값으로 본다(읽지 못하면 빈 목록 — 원문 표를 보세요). */
+export function priorReboundRecords(prior: PriorData | undefined): PriorRebound[] {
+  const out: PriorRebound[] = [];
+  for (const t of prior?.tests ?? []) {
+    if (kindOfCategory(t.category) !== 'rebound') continue;
+    const head = t.grid.findIndex((r) => r.some((c) => /측정\s*위치|측점|위치/.test(c)));
+    if (head < 0) continue;
+    const posCol = t.grid[head].findIndex((c) => /측정\s*위치|측점|위치/.test(c));
+    for (const row of t.grid.slice(head + 1)) {
+      const label = (row[posCol] ?? '').trim();
+      if (!label) continue;
+      const values = row.filter((_, i) => i !== posCol).map(numOf).filter((v) => Number.isFinite(v));
+      if (values.length < 5) continue;
+      const m = label.match(/(\d+(?:\.\d+)?)\s*m?$/i);
+      out.push({ label, pos: m ? parseFloat(m[1]) : undefined, values });
+    }
+  }
+  return out;
+}
+
+export function matchPriorRebound(prior: PriorData | undefined, st: { staValue?: number }): PriorRebound | undefined {
+  if (st.staValue === undefined) return undefined;
+  return priorReboundRecords(prior).find((r) => r.pos !== undefined && Math.abs(r.pos - st.staValue!) < 0.5);
+}
+
+export type CompareState = 'same' | 'changed' | 'partial' | 'empty';
+export interface CompareResult {
+  state: CompareState;
+  changed: number;
+  filled: number;
+}
+
+/** 금회 값과 전차 값 비교: 같은 자리마다 같으면 same, 하나라도 다르면 changed, 일부만 입력이면 partial, 없으면 empty */
+export function compareWithPrior(prior: number[], cur: number[] | undefined): CompareResult {
+  const c = cur ?? [];
+  const filled = c.filter((v) => Number.isFinite(v)).length;
+  if (!filled) return { state: 'empty', changed: 0, filled: 0 };
+  let changed = 0;
+  c.forEach((v, i) => {
+    if (Number.isFinite(v) && !(Number.isFinite(prior[i]) && prior[i] === v)) changed++;
+  });
+  if (changed) return { state: 'changed', changed, filled };
+  return { state: filled < prior.length ? 'partial' : 'same', changed: 0, filled };
 }

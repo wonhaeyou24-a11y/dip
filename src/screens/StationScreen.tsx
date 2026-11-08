@@ -2,6 +2,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { MultiValueInput } from '../components/MultiValueInput';
+import { matchPriorRebound } from '../lib/prior';
 import { PhotoGrid } from '../components/PhotoGrid';
 import { StickyBar, flushAndRun } from '../components/StickyBar';
 import { STATION_PHOTO_CATEGORIES } from '../db/db';
@@ -61,6 +62,7 @@ export function StationScreen() {
   if (station === undefined) return <p className="muted">불러오는 중…</p>;
   if (station === null) return <p className="muted">측점을 찾을 수 없습니다.</p>;
   const st: Station = station;
+  const prRebound = matchPriorRebound(facility?.prior, st);
 
   const num = (v: string): number | undefined => {
     const n = parseFloat(v);
@@ -215,7 +217,13 @@ export function StationScreen() {
         </div>
 
         <h3 className="subhead">반발경도 R (20개)</h3>
+        {prRebound && (
+          <p className="muted" style={{ marginBottom: 6 }}>
+            전차 {prRebound.label} 반발경도 {prRebound.values.length}개 — 같은 값이면 그대로 두고, 달라진 칸만 고쳐 쓰세요.
+          </p>
+        )}
         <MultiValueInput
+          priorValues={prRebound?.values}
           count={20}
           values={st.reboundValues ?? []}
           onChange={(v) => save({ reboundValues: v })}

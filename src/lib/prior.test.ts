@@ -79,3 +79,30 @@ describe('전차자료 가져오기', () => {
     expect(priorSoilPositions({ source: '', importedAt: 0, tests: [{ id: 't', category: '계획선형오차', title: '', grid: [['a']] }] })).toEqual([]);
   });
 });
+
+describe('전차 측정값 구조화·비교', () => {
+  const prior = {
+    source: 'a.json', importedAt: 0, tests: [{
+      id: 'x', category: '토질 연경도·표준관입·토양경도', title: 't',
+      grid: [['토양경도시험(mm)'], ['구분', '지반종류', '측정위치', '측정치(mm)', '', '', '평균 (mm)', '분류'], ['SH-1', '실트질모래', '20.0', '15', '14', '16', '15', '보통'], ['SH-2', '모래', '40.0', '11', '12', '', '11.5', '조밀']],
+    }, {
+      id: 'y', category: '암반 반발경도', title: 'r',
+      grid: [['측정위치', '1', '2', '3', '4', '5', '6'], ['30m', '40', '41', '42', '43', '44', '45']],
+    }],
+  };
+  it('토양경도 표에서 점별 측정값을 읽고 위치로 짝짓는다', async () => {
+    const { priorSoilRecords, matchPriorSoil, compareWithPrior, priorReboundRecords, matchPriorRebound } = await import('./prior');
+    const recs = priorSoilRecords(prior as never);
+    expect(recs).toHaveLength(2);
+    expect(recs[0].values).toEqual([15, 14, 16]);
+    expect(recs[1].values).toEqual([11, 12]);
+    expect(matchPriorSoil(prior as never, { staValue: 40.2, pointId: 'R-9' })?.id).toBe('SH-2');
+    expect(matchPriorSoil(prior as never, { staValue: 99, pointId: 'R-9' })).toBeUndefined();
+    expect(compareWithPrior([15, 14, 16], [15, 14, 16]).state).toBe('same');
+    expect(compareWithPrior([15, 14, 16], [15, 13]).changed).toBe(1);
+    expect(compareWithPrior([15, 14, 16], [15, 14]).state).toBe('partial');
+    expect(compareWithPrior([15], []).state).toBe('empty');
+    expect(priorReboundRecords(prior as never)[0].values).toHaveLength(6);
+    expect(matchPriorRebound(prior as never, { staValue: 30 })?.label).toBe('30m');
+  });
+});

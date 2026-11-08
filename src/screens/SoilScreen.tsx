@@ -13,6 +13,7 @@ import {
 } from '../db/db';
 import { formatGps, getCurrentGps } from '../lib/geo';
 import { useHeaderSubtitle } from '../lib/headerContext';
+import { compareWithPrior, matchPriorSoil } from '../lib/prior';
 import { SOIL_IDS, SOIL_SLOPE_POSITIONS, type SoilSlopePosition } from '../lib/labels';
 
 export function SoilScreen() {
@@ -51,6 +52,8 @@ export function SoilScreen() {
   if (soil === undefined) return <p className="muted">불러오는 중…</p>;
   if (soil === null) return <p className="muted">토양경도 조사점을 찾을 수 없습니다.</p>;
   const sp: SoilPoint = soil;
+  const pr = matchPriorSoil(facility?.prior, sp);
+  const cmp = pr ? compareWithPrior(pr.values, sp.hardnessValues) : null;
 
   const num = (v: string): number | undefined => {
     const n = parseFloat(v);
@@ -130,7 +133,17 @@ export function SoilScreen() {
 
       <div className="card">
         <h2>토양경도 (10개)</h2>
+        {facility?.prior && (
+          <p className="muted" style={{ marginBottom: 6 }}>
+            {pr
+              ? `전차 ${pr.id} · ${pr.pos}m${pr.soil ? ` · ${pr.soil}` : ''}${pr.avg ? ` · 평균 ${pr.avg}mm` : ''}${pr.cls ? ` · ${pr.cls}` : ''}`
+              : '전차에 없는 위치입니다 (추가 조사)'}
+            {cmp && cmp.state === 'same' && ' — 전차와 같음'}
+            {cmp && cmp.state === 'changed' && ` — 전차와 다른 값 ${cmp.changed}개 (노란 칸)`}
+          </p>
+        )}
         <MultiValueInput
+          priorValues={pr?.values}
           count={10}
           values={sp.hardnessValues ?? []}
           onChange={(v) => save({ hardnessValues: v })}

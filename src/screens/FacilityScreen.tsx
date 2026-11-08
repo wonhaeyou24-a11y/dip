@@ -12,6 +12,7 @@ import {
   deleteStationCascade,
   updateFacility,
   type DiscontinuitySet,
+  type PriorData,
   type SoilPoint,
   type Station,
 } from '../db/db';
@@ -20,7 +21,19 @@ import { downloadBlob, safeFilename } from '../lib/download';
 import { buildFacilityReport } from '../lib/excel/report';
 import { useHeaderSubtitle } from '../lib/headerContext';
 import { markerLabel } from '../lib/labels';
+import { compareWithPrior, matchPriorSoil } from '../lib/prior';
 import type { MapPoint } from '../lib/mapImage';
+
+/** 토양경도 점의 전차 대비 상태 꼬리표 */
+function priorTag(prior: PriorData, s: SoilPoint) {
+  const pr = matchPriorSoil(prior, s);
+  if (!pr) return <span className="tag-prior added">추가 조사</span>;
+  const c = compareWithPrior(pr.values, s.hardnessValues);
+  if (c.state === 'same') return <span className="tag-prior same">전차와 같음</span>;
+  if (c.state === 'changed') return <span className="tag-prior changed">변경 {c.changed}</span>;
+  if (c.state === 'partial') return <span className="tag-prior">일부 입력</span>;
+  return <span className="tag-prior">전차 {pr.values.length}개 있음</span>;
+}
 
 export function FacilityScreen() {
   const { fid = '' } = useParams();
@@ -211,6 +224,7 @@ export function FacilityScreen() {
                 <span className="muted">
                   경도 {s.hardnessValues?.filter((x) => Number.isFinite(x)).length ?? 0}/10 · GPS{' '}
                   {s.gps ? '✓' : '없음'}
+                  {facility?.prior && priorTag(facility.prior, s)}
                 </span>
               </Link>
               <button

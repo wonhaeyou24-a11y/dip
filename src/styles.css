@@ -832,6 +832,13 @@ details > summary::-webkit-details-marker {
   flex: 1;
   padding: 10px;
 }
+.mvi-grid input::placeholder { color: #9aa7b4; opacity: 0.75; }
+.mvi-grid input.chg { background: #fff4d6; border-color: #e0a100; }
+.prior-line { margin: 4px 0 6px; }
+.tag-prior { display: inline-block; font-size: 11px; padding: 1px 6px; border-radius: 9px; margin-left: 6px; background: #e8eef5; color: #3b556e; }
+.tag-prior.same { background: #e1f4e6; color: #1f6b34; }
+.tag-prior.changed { background: #ffe9c2; color: #8a5a00; }
+.tag-prior.added { background: #e6e1fb; color: #4a3a9a; }
 .mvi-grid {
   display: grid;
   grid-template-columns: repeat(5, 1fr);

@@ -7,12 +7,15 @@ interface Props {
   values: number[];
   onChange: (values: number[]) => void;
   unit?: string;
+  /** 전차 값: 입력칸에 연한 글씨로 보이고, 금회 값이 다르면 칸이 강조된다 */
+  priorValues?: number[];
 }
 
 type Mode = 'range' | 'manual';
 
-export function MultiValueInput({ count, values, onChange, unit = '' }: Props) {
-  const [mode, setMode] = useState<Mode>('range');
+export function MultiValueInput({ count, values, onChange, unit = '', priorValues }: Props) {
+  const hasPrior = !!priorValues && priorValues.some((v) => Number.isFinite(v));
+  const [mode, setMode] = useState<Mode>(hasPrior ? 'manual' : 'range');
   const [min, setMin] = useState('');
   const [max, setMax] = useState('');
   const stats = valueStats(values);
@@ -23,6 +26,8 @@ export function MultiValueInput({ count, values, onChange, unit = '' }: Props) {
     if (!Number.isFinite(lo) || !Number.isFinite(hi)) return;
     onChange(randomValues(lo, hi, count));
   };
+
+  const copyPrior = () => onChange(Array.from({ length: count }, (_, i) => (priorValues && Number.isFinite(priorValues[i]) ? priorValues[i] : NaN)));
 
   const setAt = (i: number, raw: string) => {
     const next = values.slice();
@@ -43,6 +48,14 @@ export function MultiValueInput({ count, values, onChange, unit = '' }: Props) {
         </button>
       </div>
 
+      {hasPrior && (
+        <p className="muted prior-line">
+          전차 {priorValues!.filter((v) => Number.isFinite(v)).join(', ')}
+          <button className="ghost" style={{ marginLeft: 8 }} onClick={copyPrior}>
+            전차와 같음
+          </button>
+        </p>
+      )}
       {mode === 'range' ? (
         <div className="mvi-range">
           <input
@@ -68,11 +81,12 @@ export function MultiValueInput({ count, values, onChange, unit = '' }: Props) {
         <div className="mvi-grid">
           {Array.from({ length: count }, (_, i) => (
             <input
-              key={i}
               type="number"
               inputMode="decimal"
-              placeholder={`${i + 1}`}
+              className={Number.isFinite(values[i]) && priorValues && Number.isFinite(priorValues[i]) && priorValues[i] !== values[i] ? 'chg' : ''}
+              placeholder={priorValues && Number.isFinite(priorValues[i]) ? String(priorValues[i]) : `${i + 1}`}
               defaultValue={Number.isFinite(values[i]) ? values[i] : ''}
+              key={`${i}-${values[i]}`}
               onBlur={(e) => setAt(i, e.target.value)}
             />
           ))}
