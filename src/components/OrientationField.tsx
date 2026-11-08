@@ -159,24 +159,6 @@ export function OrientationField({ value, onChange, prior }: Props) {
                 ? ' — 금회 방향이 다릅니다'
                 : ' — 같음'
               : ''}
-            {!value && (
-              <button
-                className="ghost"
-                style={{ marginLeft: 8 }}
-                onClick={() =>
-                  onChange({
-                    dip: prior.dip,
-                    dipDirection: prior.dipDir,
-                    strike: Math.round(norm360(prior.dipDir - 90) * 10) / 10,
-                    method: 'manual',
-                    declinationApplied: 0,
-                    measuredAt: Date.now(),
-                  })
-                }
-              >
-                전차와 같음
-              </button>
-            )}
           </p>
         )}
         <div className="btn-row" style={{ marginTop: 10 }}>

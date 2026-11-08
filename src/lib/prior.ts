@@ -16,6 +16,7 @@ import {
   type PriorTest,
   type TestKind,
 } from '../db/db';
+import { spacingClassFromM, type SeepageClass, type SpacingClass } from './scoring/condition';
 import { composeSoilLocation, nextSoilId } from './labels';
 
 export const TEST_KIND_LABEL: Record<TestKind, string> = {
@@ -317,6 +318,10 @@ export interface PriorSet {
   /** 종류·간격 원문 */
   dtype?: string;
   spacing?: string;
+  /** 측점 공통(표에는 첫 칸에만 적혀 있어도 같은 측점의 모든 Set 에 채운다) */
+  seepage?: string;
+  blockSize?: { x: number; y: number; z: number };
+  strength?: string;
   /** ①연장성 ②틈새 ③거칠기 ④충진물질 ⑤풍화도 — 상태값 원문과 점수 */
   items?: Record<'persistence' | 'aperture' | 'roughness' | 'infilling' | 'weathering', PriorSetItem>;
   setNo: number;
@@ -388,6 +393,13 @@ export function priorDiscontinuityRecords(prior: PriorData | undefined): PriorSe
             if (v) put(sc2.no, { dtype: v });
           } else if (/^간\s*격/.test(label)) {
             if (v) put(sc2.no, { spacing: v });
+          } else if (/^누\s*수/.test(label)) {
+            if (v) put(sc2.no, { seepage: v });
+          } else if (/^암괴\s*크기/.test(label)) {
+            const nums = v.match(/\d+(?:\.\d+)?/g);
+            if (nums && nums.length >= 3 && sc2 === setCols[0]) put(sc2.no, { blockSize: { x: parseFloat(nums[0]), y: parseFloat(nums[1]), z: parseFloat(nums[2]) } });
+          } else if (/^강\s*도/.test(label)) {
+            if (v && sc2 === setCols[0]) put(sc2.no, { strength: v });
           } else if (CIRC.some((c) => label.startsWith(c))) {
             const idx = CIRC.findIndex((c) => label.startsWith(c));
             const sv = parseFloat(nxt);
@@ -395,7 +407,7 @@ export function priorDiscontinuityRecords(prior: PriorData | undefined): PriorSe
             const items = { ...(rec?.items ?? {}) } as NonNullable<PriorSet['items']>;
             items[ITEM_KEYS[idx]] = { label: v, score: Number.isFinite(sv) ? sv : undefined };
             put(sc2.no, { items });
-          } else if (/절리\s*상태/.test(label)) {
+          } else if (/절리\s*상태/.test(label) || (!label && /->/.test(v))) {
             const arrow = v.match(/->\s*(\d+(?:\.\d+)?)/);
             const mean = v.match(/=\s*(\d+(?:\.\d+)?)/);
             const val = arrow ? parseFloat(arrow[1]) : mean ? Math.round(parseFloat(mean[1])) : parseFloat(v);
@@ -431,7 +443,42 @@ export function priorDiscontinuityRecords(prior: PriorData | undefined): PriorSe
       put(no, patch);
     }
   }
+  // 측점 공통 값(누수·암괴크기·강도): 표에 첫 칸에만 있어도 같은 측점의 모든 Set 에 채운다
+  const bySite: Record<string, PriorSet[]> = {};
+  out.forEach((r) => (bySite[r.site] = bySite[r.site] ?? []).push(r));
+  Object.values(bySite).forEach((list) => {
+    const pick = <K extends 'seepage' | 'blockSize' | 'strength'>(k: K) => list.find((r) => r[k] !== undefined)?.[k];
+    const sp = pick('seepage');
+    const bs = pick('blockSize');
+    const st = pick('strength');
+    list.forEach((r) => {
+      if (r.seepage === undefined && sp !== undefined) r.seepage = sp;
+      if (r.blockSize === undefined && bs !== undefined) r.blockSize = bs;
+      if (r.strength === undefined && st !== undefined) r.strength = st;
+    });
+  });
   return out;
+}
+
+/** "완전건조" · "dry" · "습함" … → 누수 상태 분류 */
+export function seepageFromText(t: string | undefined): SeepageClass | null {
+  const s = (t ?? '').toLowerCase().replace(/\s/g, '');
+  if (!s) return null;
+  if (/건조|dry/.test(s)) return 'g_dry';
+  if (/습|damp|moist/.test(s)) return 'g_damp';
+  if (/젖|wet/.test(s)) return 'g_wet';
+  if (/떨어|drip/.test(s)) return 'g_dropping';
+  if (/흐|flow/.test(s)) return 'g_flowing';
+  return null;
+}
+
+/** "0.2 ~ 0.6" · "0.2~0.6m" → 최소·최대(m)와 간격 분류(중간값 기준) */
+export function spacingFromText(t: string | undefined): { min: number; max: number; cls: SpacingClass } | null {
+  const nums = (t ?? '').match(/\d+(?:\.\d+)?/g);
+  if (!nums || !nums.length) return null;
+  const a = parseFloat(nums[0]);
+  const b = nums.length > 1 ? parseFloat(nums[1]) : a;
+  return { min: Math.min(a, b), max: Math.max(a, b), cls: spacingClassFromM((a + b) / 2) };
 }
 
 export function matchPriorSet(prior: PriorData | undefined, siteId: string, setName: string): PriorSet | undefined {

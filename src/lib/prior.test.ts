@@ -163,3 +163,25 @@ describe.skipIf(!existsSync(REAL))('실제 전차자료정리 결과(raw_tables)
     expect(rb[0]).toMatchObject({ pos: 128, min: 47, max: 61, avg: 54.7 });
   });
 });
+
+const REAL_OLD = 'C:/Users/dashl/Downloads/files/중부선_14.51k_하남방향_절토사면_사전자료정리.json';
+describe.skipIf(!existsSync(REAL_OLD) || !existsSync(REAL))('간격·누수·암괴크기·강도 (표 양식이 다른 두 자료)', () => {
+  it('측점 공통 값(누수·암괴크기·강도)을 모든 Set 에 채우고 간격·누수 글자를 분류로 바꾼다', async () => {
+    const m = await import('./prior');
+    for (const f of [REAL_OLD, REAL]) {
+      const r = m.parsePriorJson(readFileSync(f, 'utf8'), 'x.json');
+      if (!r.ok) throw new Error('파싱 실패');
+      const sets = m.priorDiscontinuityRecords(r.prior);
+      expect(sets.length).toBeGreaterThanOrEqual(3);
+      const s1 = sets.find((x) => x.site === 'A' && x.setNo === 1)!;
+      expect(s1.spacing).toBeTruthy();
+      expect(m.spacingFromText(s1.spacing)).toMatchObject({ min: 0.2, max: 0.6, cls: 's_moderate' });
+      expect(s1.blockSize).toEqual({ x: 0.5, y: 0.5, z: 0.5 });
+      expect(s1.strength).toMatch(/MPa/);
+      expect(m.seepageFromText(s1.seepage)).toBe('g_dry');
+      const s3 = sets.find((x) => x.site === 'A' && x.setNo === 3)!;
+      expect(s3.blockSize).toEqual({ x: 0.5, y: 0.5, z: 0.5 }); // 첫 칸에만 있던 값이 Set 3 에도
+      expect(s3.score).toBeGreaterThanOrEqual(3);
+    }
+  });
+});

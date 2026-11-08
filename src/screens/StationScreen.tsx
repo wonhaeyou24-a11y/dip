@@ -2,7 +2,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { MultiValueInput } from '../components/MultiValueInput';
-import { compareOrientation, matchPriorRebound, matchPriorReboundSummary, matchPriorSet, priorSetText } from '../lib/prior';
+import { compareOrientation, matchPriorRebound, matchPriorReboundSummary, matchPriorSet, priorDiscontinuityRecords, priorSetText, seepageFromText } from '../lib/prior';
 import { PhotoGrid } from '../components/PhotoGrid';
 import { StickyBar, flushAndRun } from '../components/StickyBar';
 import { STATION_PHOTO_CATEGORIES } from '../db/db';
@@ -63,6 +63,9 @@ export function StationScreen() {
   if (station === null) return <p className="muted">측점을 찾을 수 없습니다.</p>;
   const st: Station = station;
   const prRebound = matchPriorRebound(facility?.prior, st);
+  const siteLetter = (st.siteId.match(/SITE[-\s]*([A-Z0-9]+)/i)?.[1] ?? '').toUpperCase();
+  const prSite = priorDiscontinuityRecords(facility?.prior).find((r) => r.site.toUpperCase() === siteLetter);
+  const prSeep = seepageFromText(prSite?.seepage);
   const prSum = matchPriorReboundSummary(facility?.prior, st);
   const rbOut = prSum && prSum.min !== undefined && prSum.max !== undefined ? (st.reboundValues ?? []).filter((v) => Number.isFinite(v) && (v < prSum.min! || v > prSum.max!)).length : 0;
 
@@ -200,7 +203,7 @@ export function StationScreen() {
               value={st.seepage ?? ''}
               onChange={(e) => save({ seepage: (e.target.value || null) as SeepageClass | null })}
             >
-              <option value="">선택</option>
+              <option value="">{prSeep ? `선택 (전차 ${SEEPAGE_LABELS[prSeep]})` : '선택'}</option>
               {SEEPAGE_CLASSES.map((c) => (
                 <option key={c} value={c}>
                   {SEEPAGE_LABELS[c]}
@@ -217,7 +220,7 @@ export function StationScreen() {
                   className="w-xs"
                   type="number"
                   inputMode="decimal"
-                  placeholder={k}
+                  placeholder={prSite?.blockSize ? String(prSite.blockSize[k]) : k}
                   defaultValue={st.blockSize?.[k] ?? ''}
                   onBlur={(e) => {
                     const cur = st.blockSize ?? { x: 0, y: 0, z: 0 };
@@ -229,6 +232,7 @@ export function StationScreen() {
           </div>
         </div>
 
+        {prSite?.strength && <p className="ori-prior">전차 강도 {prSite.strength}</p>}
         <h3 className="subhead">반발경도 R (20개)</h3>
         {prSum && (
           <p className="muted" style={{ marginBottom: 6 }}>

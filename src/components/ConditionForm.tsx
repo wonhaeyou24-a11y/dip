@@ -24,7 +24,7 @@ interface Props {
 }
 
 /** 점수 → 단계·점수구간 (0:1단계, 1~2:2단계, 3~4:3단계, 5~6:4단계, 7~8:5단계) */
-function fromScore(score: number): { stage: Stage; bound: Bound } {
+export function fromScore(score: number): { stage: Stage; bound: Bound } {
   if (score <= 0) return { stage: 1, bound: 'lower' };
   const stage = (Math.ceil(score / 2) + 1) as Stage;
   return { stage: Math.min(5, stage) as Stage, bound: score % 2 === 1 ? 'lower' : 'upper' };
@@ -67,23 +67,9 @@ export function ConditionForm({ value, onChange, prior }: Props) {
     const p = prior?.[key];
     return p && p.score !== undefined && Number.isFinite(p.score) ? { ...p, ...fromScore(p.score) } : null;
   };
-  const copyPrior = () => {
-    const next: Partial<Condition> = {};
-    CONDITION_ITEMS.forEach((k) => {
-      const p = priorOf(k);
-      if (p) next[k] = makeRatedItem(p.stage, p.bound);
-    });
-    patch(next);
-  };
-  const hasPrior = CONDITION_ITEMS.some((k) => priorOf(k));
 
   return (
     <div className="cond">
-      {hasPrior && (
-        <button className="ghost full" onClick={copyPrior} style={{ marginBottom: 10 }}>
-          전차와 같음 (5개 항목 모두 채우기)
-        </button>
-      )}
       {CONDITION_ITEMS.map((key) => {
         const item = value[key];
         const pr = priorOf(key);

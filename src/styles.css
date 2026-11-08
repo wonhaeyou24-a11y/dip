@@ -844,6 +844,8 @@ details > summary::-webkit-details-marker {
 .chip.on { background: #4f7cff; color: #fff; }
 .chip small { opacity: 0.8; margin-left: 4px; }
 .ori-prior { color: #8a97a6; font-size: 13px; margin: 6px 0 0; }
+.prior-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; background: #eef3fb; border-radius: 14px; padding: 10px 12px; margin-bottom: 12px; font-size: 14px; color: #3b556e; }
+.prior-bar button { width: auto; flex: 0 0 auto; padding: 8px 12px; font-size: 14px; }
 .mvi-grid input::placeholder { color: #9aa7b4; opacity: 0.75; }
 .mvi-grid input.chg { background: #fff4d6; border-color: #e0a100; }
 .prior-line { margin: 4px 0 6px; }

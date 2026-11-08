@@ -14,9 +14,12 @@ import {
 } from '../db/db';
 import { useHeaderSubtitle } from '../lib/headerContext';
 import { SET_NAMES } from '../lib/labels';
-import { matchPriorSet } from '../lib/prior';
+import { matchPriorSet, priorSetText, spacingFromText } from '../lib/prior';
+import { fromScore } from '../components/ConditionForm';
 import {
   SPACING_CLASSES,
+  makeRatedItem,
+  withScores,
   SPACING_LABELS,
   spacingClassFromM,
   type Condition,
@@ -46,6 +49,40 @@ export function SetScreen() {
   const priorSet = matchPriorSet(facility?.prior, station?.siteId ?? '', set.name);
 
   const save = (patch: Parameters<typeof updateSet>[1]) => updateSet(setid, patch);
+  const priorSpacing = spacingFromText(priorSet?.spacing);
+
+  /** 전차 값을 비어 있는 칸에만 채운다 (이미 쓴 값은 건드리지 않음) — 달라진 곳만 고치면 된다 */
+  const fillFromPrior = () => {
+    if (!priorSet) return;
+    const patch: Parameters<typeof updateSet>[1] = {};
+    if (!set.orientation && priorSet.dip !== undefined && priorSet.dipDir !== undefined) {
+      patch.orientation = {
+        dip: priorSet.dip,
+        dipDirection: priorSet.dipDir,
+        strike: Math.round((((priorSet.dipDir - 90) % 360) + 360) % 360 * 10) / 10,
+        method: 'manual',
+        declinationApplied: 0,
+        measuredAt: Date.now(),
+      };
+    }
+    if (!set.spacing && priorSpacing) {
+      patch.spacing = priorSpacing.cls;
+      patch.spacing_min_m = priorSpacing.min;
+      patch.spacing_max_m = priorSpacing.max;
+    }
+    if (priorSet.items) {
+      let c = set.condition;
+      (['persistence', 'aperture', 'roughness', 'infilling', 'weathering'] as const).forEach((k) => {
+        const p = priorSet.items![k];
+        if (!c[k] && p && p.score !== undefined) {
+          const sb = fromScore(p.score);
+          c = { ...c, [k]: makeRatedItem(sb.stage, sb.bound) };
+        }
+      });
+      patch.condition = withScores(c);
+    }
+    save(patch);
+  };
 
   const goList = () => flushAndRun(() => navigate(`/f/${fid}/s/${sid}`));
   const saveAndNext = () =>
@@ -59,6 +96,15 @@ export function SetScreen() {
       <p className="crumb">
         {station?.siteId ?? ''} / {set.name}
       </p>
+
+      {priorSet && (
+        <div className="prior-bar">
+          <span>전차 {priorSetText(priorSet)}{priorSet.spacing ? ` · 간격 ${priorSet.spacing}` : ''}</span>
+          <button className="primary" onClick={fillFromPrior}>
+            전차와 같음으로 채우기
+          </button>
+        </div>
+      )}
 
       <div className="card">
         <h2>절리군</h2>
@@ -85,6 +131,7 @@ export function SetScreen() {
             </select>
           </label>
         </div>
+        {!priorSet && (
         <button
           className="ghost"
           style={{ marginTop: 10, width: '100%' }}
@@ -95,6 +142,7 @@ export function SetScreen() {
         >
           직전 절리군 값 복사
         </button>
+        )}
         {copyMsg && (
           <p className="muted" style={{ marginTop: 6 }}>
             {copyMsg}
@@ -117,7 +165,7 @@ export function SetScreen() {
           {SPACING_CLASSES.map((c) => (
             <button
               key={c}
-              className={`seg-btn${set.spacing === c ? ' on' : ''}`}
+              className={`seg-btn${set.spacing === c ? ' on' : ''}${priorSpacing?.cls === c ? ' prior' : ''}`}
               onClick={() => save({ spacing: c })}
             >
               {SPACING_LABELS[c]}
