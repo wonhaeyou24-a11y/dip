@@ -216,7 +216,7 @@ export function StationScreen() {
             <span className="row-inline">
               {(['x', 'y', 'z'] as const).map((k) => (
                 <input
-                  key={k}
+                  key={`${k}-${st.blockSize?.[k] ?? ''}`}
                   className="w-xs"
                   type="number"
                   inputMode="decimal"
@@ -232,6 +232,24 @@ export function StationScreen() {
           </div>
         </div>
 
+        {prSite && (prSeep || prSite.blockSize) && (
+          <p className="ori-prior">
+            전차{prSeep ? ` 누수 ${SEEPAGE_LABELS[prSeep]}` : ''}
+            {prSite.blockSize ? ` · 암괴크기 ${prSite.blockSize.x}×${prSite.blockSize.y}×${prSite.blockSize.z}m` : ''}
+            <button
+              className="ghost"
+              style={{ marginLeft: 8, width: 'auto', padding: '6px 10px' }}
+              onClick={() =>
+                save({
+                  ...(prSeep && !st.seepage ? { seepage: prSeep } : {}),
+                  ...(prSite.blockSize && !(st.blockSize && (st.blockSize.x || st.blockSize.y || st.blockSize.z)) ? { blockSize: prSite.blockSize } : {}),
+                })
+              }
+            >
+              전차와 같음
+            </button>
+          </p>
+        )}
         {prSite?.strength && <p className="ori-prior">전차 강도 {prSite.strength}</p>}
         <h3 className="subhead">반발경도 R (20개)</h3>
         {prSum && (
