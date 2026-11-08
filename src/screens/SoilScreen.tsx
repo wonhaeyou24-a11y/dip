@@ -13,7 +13,7 @@ import {
 } from '../db/db';
 import { formatGps, getCurrentGps } from '../lib/geo';
 import { useHeaderSubtitle } from '../lib/headerContext';
-import { compareWithPrior, matchPriorSoil } from '../lib/prior';
+import { compareWithPrior, matchPriorSoil, matchPriorSoilGroup } from '../lib/prior';
 import { SOIL_IDS, SOIL_SLOPE_POSITIONS, type SoilSlopePosition } from '../lib/labels';
 
 export function SoilScreen() {
@@ -54,6 +54,8 @@ export function SoilScreen() {
   const sp: SoilPoint = soil;
   const pr = matchPriorSoil(facility?.prior, sp);
   const cmp = pr ? compareWithPrior(pr.values, sp.hardnessValues) : null;
+  const grp = !pr ? matchPriorSoilGroup(facility?.prior, sp) : undefined;
+  const outOfRange = grp && grp.min !== undefined && grp.max !== undefined ? (sp.hardnessValues ?? []).filter((v) => Number.isFinite(v) && (v < grp.min! || v > grp.max!)).length : 0;
 
   const num = (v: string): number | undefined => {
     const n = parseFloat(v);
@@ -135,7 +137,9 @@ export function SoilScreen() {
         <h2>토양경도 (10개)</h2>
         {facility?.prior && (
           <p className="muted" style={{ marginBottom: 6 }}>
-            {pr
+            {grp
+              ? `전차 ${grp.section}${grp.from !== undefined ? ` ${grp.from}~${grp.to}m` : ''} ${grp.count}개소 · 최소 ${grp.min ?? '-'} 최대 ${grp.max ?? '-'} 평균 ${grp.avg ?? '-'}mm${grp.soil ? ` · ${grp.soil}` : ''}${grp.cls ? ` · ${grp.cls}` : ''}${outOfRange ? ` — 전차 범위 밖 ${outOfRange}개 확인` : ''}`
+              : pr
               ? `전차 ${pr.id} · ${pr.pos}m${pr.soil ? ` · ${pr.soil}` : ''}${pr.avg ? ` · 평균 ${pr.avg}mm` : ''}${pr.cls ? ` · ${pr.cls}` : ''}`
               : '전차에 없는 위치입니다 (추가 조사)'}
             {cmp && cmp.state === 'same' && ' — 전차와 같음'}

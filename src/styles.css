@@ -832,6 +832,9 @@ details > summary::-webkit-details-marker {
   flex: 1;
   padding: 10px;
 }
+.prior-items { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 6px; }
+.prior-items td { padding: 3px 6px; border-top: 1px solid #e6ebf0; color: #6b7a89; }
+.prior-items tr.chg td { background: #fff4d6; color: #5c3d00; }
 .mvi-grid input::placeholder { color: #9aa7b4; opacity: 0.75; }
 .mvi-grid input.chg { background: #fff4d6; border-color: #e0a100; }
 .prior-line { margin: 4px 0 6px; }

@@ -134,3 +134,31 @@ describe('전차 불연속면 기록', () => {
     expect(m.priorSetText(h[0])).toBe('80/050 · 절리상태 3');
   });
 });
+
+import { existsSync, readFileSync } from 'node:fs';
+const REAL = 'C:/Users/dashl/Downloads/files (1)/중부선_14.51k_하남방향_절토사면_제9장_사전자료정리.json';
+describe.skipIf(!existsSync(REAL))('실제 전차자료정리 결과(raw_tables) 가져오기', () => {
+  it('시험·측량 표를 읽어 불연속면·토양경도·반발경도로 분류하고 기록을 만든다', async () => {
+    const m = await import('./prior');
+    const r = m.parsePriorJson(readFileSync(REAL, 'utf8'), 'real.json');
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    const cats = r.prior.tests.map((t) => m.kindOfCategory(t.category));
+    expect(cats.filter((k) => k === 'discontinuity')).toHaveLength(2);
+    expect(cats.filter((k) => k === 'soil')).toHaveLength(1);
+    expect(cats.filter((k) => k === 'rebound')).toHaveLength(1);
+    const sets = m.priorDiscontinuityRecords(r.prior);
+    expect(sets).toHaveLength(6); // Site-A Set1~3 + Site-B Set1~3 (평사투영 표는 제외)
+    const a1 = sets.find((s) => s.site === 'A' && s.setNo === 1)!;
+    expect(a1).toMatchObject({ dip: 79, dipDir: 248, score: 3, sitePos: 128 });
+    expect(a1.items?.roughness).toEqual({ label: '평탄', score: 5 });
+    const b2 = sets.find((s) => s.site === 'B' && s.setNo === 2)!;
+    expect(b2).toMatchObject({ dip: 72, dipDir: 278, score: 3 });
+    const soil = m.priorSoilGroups(r.prior);
+    expect(soil).toHaveLength(2);
+    expect(soil[0]).toMatchObject({ section: '3구간', from: 344, to: 407, count: 3, min: 10, max: 14, avg: 12.4 });
+    const rb = m.priorReboundSummaries(r.prior);
+    expect(rb).toHaveLength(2);
+    expect(rb[0]).toMatchObject({ pos: 128, min: 47, max: 61, avg: 54.7 });
+  });
+});

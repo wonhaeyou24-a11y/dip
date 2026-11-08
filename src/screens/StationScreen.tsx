@@ -2,7 +2,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { MultiValueInput } from '../components/MultiValueInput';
-import { compareOrientation, matchPriorRebound, matchPriorSet, priorSetText } from '../lib/prior';
+import { compareOrientation, matchPriorRebound, matchPriorReboundSummary, matchPriorSet, priorSetText } from '../lib/prior';
 import { PhotoGrid } from '../components/PhotoGrid';
 import { StickyBar, flushAndRun } from '../components/StickyBar';
 import { STATION_PHOTO_CATEGORIES } from '../db/db';
@@ -63,6 +63,8 @@ export function StationScreen() {
   if (station === null) return <p className="muted">측점을 찾을 수 없습니다.</p>;
   const st: Station = station;
   const prRebound = matchPriorRebound(facility?.prior, st);
+  const prSum = matchPriorReboundSummary(facility?.prior, st);
+  const rbOut = prSum && prSum.min !== undefined && prSum.max !== undefined ? (st.reboundValues ?? []).filter((v) => Number.isFinite(v) && (v < prSum.min! || v > prSum.max!)).length : 0;
 
   const num = (v: string): number | undefined => {
     const n = parseFloat(v);
@@ -228,6 +230,12 @@ export function StationScreen() {
         </div>
 
         <h3 className="subhead">반발경도 R (20개)</h3>
+        {prSum && (
+          <p className="muted" style={{ marginBottom: 6 }}>
+            전차 {prSum.section} {prSum.label} · 반발경도 {prSum.min ?? '-'}~{prSum.max ?? '-'} (평균 {prSum.avg ?? '-'}){prSum.strength ? ` · 추정강도 ${prSum.strength}MPa` : ''}{prSum.cls ? ` · ${prSum.cls}` : ''}
+            {rbOut ? ` — 전차 범위 밖 ${rbOut}개 확인` : ''}
+          </p>
+        )}
         {prRebound && (
           <p className="muted" style={{ marginBottom: 6 }}>
             전차 {prRebound.label} 반발경도 {prRebound.values.length}개 — 같은 값이면 그대로 두고, 달라진 칸만 고쳐 쓰세요.
