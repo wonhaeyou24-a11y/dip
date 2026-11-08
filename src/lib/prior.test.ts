@@ -135,6 +135,7 @@ describe('전차 불연속면 기록', () => {
   });
 });
 
+// @ts-ignore -- 실제 자료 시험 전용(node 내장 모듈), 앱 번들에는 들어가지 않는다
 import { existsSync, readFileSync } from 'node:fs';
 const REAL = 'C:/Users/dashl/Downloads/files (1)/중부선_14.51k_하남방향_절토사면_제9장_사전자료정리.json';
 describe.skipIf(!existsSync(REAL))('실제 전차자료정리 결과(raw_tables) 가져오기', () => {
