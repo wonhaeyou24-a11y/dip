@@ -26,11 +26,13 @@ function norm360(d: number) {
 interface Props {
   value: SetOrientation | null;
   onChange: (o: SetOrientation) => void;
+  /** 전차 방향(경사/경사방향): 연하게 보여 주고 [전차와 같음]으로 채울 수 있다 */
+  prior?: { dip: number; dipDir: number };
 }
 
 type Mode = 'idle' | 'sensor' | 'manual';
 
-export function OrientationField({ value, onChange }: Props) {
+export function OrientationField({ value, onChange, prior }: Props) {
   const [mode, setMode] = useState<Mode>('idle');
   const [declination, setDeclination] = useState(value?.declinationApplied ?? DEFAULT_DECLINATION_KR);
 
@@ -149,6 +151,34 @@ export function OrientationField({ value, onChange }: Props) {
         ) : (
           <p className="muted">방향성 미측정</p>
         )}
+        {prior && (
+          <p className="ori-prior">
+            전차 {prior.dip}/{String(Math.round(prior.dipDir)).padStart(3, '0')}
+            {value
+              ? Math.abs(value.dip - prior.dip) > 10 || Math.abs(((value.dipDirection - prior.dipDir + 540) % 360) - 180) > 10
+                ? ' — 금회 방향이 다릅니다'
+                : ' — 같음'
+              : ''}
+            {!value && (
+              <button
+                className="ghost"
+                style={{ marginLeft: 8 }}
+                onClick={() =>
+                  onChange({
+                    dip: prior.dip,
+                    dipDirection: prior.dipDir,
+                    strike: Math.round(norm360(prior.dipDir - 90) * 10) / 10,
+                    method: 'manual',
+                    declinationApplied: 0,
+                    measuredAt: Date.now(),
+                  })
+                }
+              >
+                전차와 같음
+              </button>
+            )}
+          </p>
+        )}
         <div className="btn-row" style={{ marginTop: 10 }}>
           <button className="ghost" onClick={startSensor} disabled={!isOrientationSupported()}>
             {value ? '다시 측정' : '측정'}
@@ -174,11 +204,11 @@ export function OrientationField({ value, onChange }: Props) {
       <div>
         <div className="field">
           <label>경사 (°, 0~90)</label>
-          <input type="number" inputMode="decimal" value={mDip} onChange={(e) => setMDip(e.target.value)} />
+          <input type="number" inputMode="decimal" value={mDip} placeholder={prior ? String(prior.dip) : ''} onChange={(e) => setMDip(e.target.value)} />
         </div>
         <div className="field" style={{ marginTop: 8 }}>
           <label>경사방향 (°, 0~360)</label>
-          <input type="number" inputMode="decimal" value={mDir} onChange={(e) => setMDir(e.target.value)} />
+          <input type="number" inputMode="decimal" value={mDir} placeholder={prior ? String(prior.dipDir) : ''} onChange={(e) => setMDir(e.target.value)} />
         </div>
         <div className="btn-row" style={{ marginTop: 12 }}>
           <button className="ghost" onClick={() => setMode('idle')}>

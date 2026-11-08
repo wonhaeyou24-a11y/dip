@@ -835,6 +835,15 @@ details > summary::-webkit-details-marker {
 .prior-items { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 6px; }
 .prior-items td { padding: 3px 6px; border-top: 1px solid #e6ebf0; color: #6b7a89; }
 .prior-items tr.chg td { background: #fff4d6; color: #5c3d00; }
+.seg-btn.prior:not(.on), .score-btn.prior:not(.on) { border: 1.5px dashed #7a8ea3; background: #f3f6fa; color: #5b6b7c; position: relative; }
+.seg-btn.prior:not(.on)::after { content: '전차'; position: absolute; top: -7px; right: 4px; font-size: 10px; background: #e8eef5; color: #3b556e; border-radius: 6px; padding: 0 4px; }
+.seg-btn.prior.on { box-shadow: 0 0 0 2px #cfe0f3 inset; }
+.ghost-hint { font-size: 12px; color: #8a97a6; }
+.chip-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.chip { width: auto; flex: 0 0 auto; padding: 8px 14px; border-radius: 999px; background: #eef1f5; color: #3a4a5c; font-size: 14px; }
+.chip.on { background: #4f7cff; color: #fff; }
+.chip small { opacity: 0.8; margin-left: 4px; }
+.ori-prior { color: #8a97a6; font-size: 13px; margin: 6px 0 0; }
 .mvi-grid input::placeholder { color: #9aa7b4; opacity: 0.75; }
 .mvi-grid input.chg { background: #fff4d6; border-color: #e0a100; }
 .prior-line { margin: 4px 0 6px; }

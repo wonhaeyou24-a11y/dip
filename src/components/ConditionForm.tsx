@@ -14,9 +14,20 @@ import {
   type Stage,
 } from '../lib/scoring/condition';
 
+export type PriorItems = Partial<Record<ConditionItemKey, { label: string; score?: number }>>;
+
 interface Props {
   value: Condition;
   onChange: (c: Condition) => void;
+  /** 전차 항목별 상태값·점수: 선택 버튼에 연하게 표시되고, [전차와 같음]으로 한 번에 채울 수 있다 */
+  prior?: PriorItems;
+}
+
+/** 점수 → 단계·점수구간 (0:1단계, 1~2:2단계, 3~4:3단계, 5~6:4단계, 7~8:5단계) */
+function fromScore(score: number): { stage: Stage; bound: Bound } {
+  if (score <= 0) return { stage: 1, bound: 'lower' };
+  const stage = (Math.ceil(score / 2) + 1) as Stage;
+  return { stage: Math.min(5, stage) as Stage, bound: score % 2 === 1 ? 'lower' : 'upper' };
 }
 
 const STAGES: Stage[] = [1, 2, 3, 4, 5];
@@ -35,7 +46,7 @@ function splitItemName(name: string): [string, string] {
   return i === -1 ? ['', name] : [name.slice(0, i), name.slice(i + 1)];
 }
 
-export function ConditionForm({ value, onChange }: Props) {
+export function ConditionForm({ value, onChange, prior }: Props) {
   const patch = (p: Partial<Condition>) => onChange(withScores({ ...value, ...p }));
 
   const setItem = (key: ConditionItemKey, item: RatedItem | null) => patch({ [key]: item });
@@ -52,10 +63,30 @@ export function ConditionForm({ value, onChange }: Props) {
     setItem(key, makeRatedItem(prev.stage, bound));
   };
 
+  const priorOf = (key: ConditionItemKey) => {
+    const p = prior?.[key];
+    return p && p.score !== undefined && Number.isFinite(p.score) ? { ...p, ...fromScore(p.score) } : null;
+  };
+  const copyPrior = () => {
+    const next: Partial<Condition> = {};
+    CONDITION_ITEMS.forEach((k) => {
+      const p = priorOf(k);
+      if (p) next[k] = makeRatedItem(p.stage, p.bound);
+    });
+    patch(next);
+  };
+  const hasPrior = CONDITION_ITEMS.some((k) => priorOf(k));
+
   return (
     <div className="cond">
+      {hasPrior && (
+        <button className="ghost full" onClick={copyPrior} style={{ marginBottom: 10 }}>
+          전차와 같음 (5개 항목 모두 채우기)
+        </button>
+      )}
       {CONDITION_ITEMS.map((key) => {
         const item = value[key];
+        const pr = priorOf(key);
         const labels = ITEM_LABELS[key];
         const [num, title] = splitItemName(ITEM_NAMES[key]);
         const accent = ITEM_ACCENTS[key];
@@ -66,10 +97,16 @@ export function ConditionForm({ value, onChange }: Props) {
                 <span className="cond-num">{num}</span>
                 {title}
               </span>
-              {item && (
+              {item ? (
                 <span className="pill">
-                  {item.stage}단계 · {item.score}점
+                  {item.stage}단계 · {item.score}점{pr && item.score !== pr.score ? ' · 변경' : ''}
                 </span>
+              ) : (
+                pr && (
+                  <span className="ghost-hint">
+                    전차 {pr.label} · {pr.score}점
+                  </span>
+                )
               )}
             </div>
 
@@ -77,7 +114,7 @@ export function ConditionForm({ value, onChange }: Props) {
               {STAGES.map((st) => (
                 <button
                   key={st}
-                  className={`seg-btn${item?.stage === st ? ' on' : ''}`}
+                  className={`seg-btn${item?.stage === st ? ' on' : ''}${pr?.stage === st ? ' prior' : ''}`}
                   onClick={() => pickStage(key, st)}
                 >
                   {labels[st - 1]}
@@ -93,7 +130,7 @@ export function ConditionForm({ value, onChange }: Props) {
                   return (
                     <button
                       key={sc}
-                      className={`score-btn${item.bound === b ? ' on' : ''}`}
+                      className={`score-btn${item.bound === b ? ' on' : ''}${pr && pr.stage === item.stage && pr.score === sc ? ' prior' : ''}`}
                       onClick={() => pickBound(key, b)}
                     >
                       {sc}

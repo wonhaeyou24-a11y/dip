@@ -14,12 +14,9 @@ import {
 } from '../db/db';
 import { useHeaderSubtitle } from '../lib/headerContext';
 import { SET_NAMES } from '../lib/labels';
-import { compareOrientation, matchPriorSet, priorSetText } from '../lib/prior';
+import { matchPriorSet } from '../lib/prior';
 import {
   SPACING_CLASSES,
-  CONDITION_ITEMS,
-  ITEM_NAMES,
-  evaluateCondition,
   SPACING_LABELS,
   spacingClassFromM,
   type Condition,
@@ -47,9 +44,6 @@ export function SetScreen() {
   if (set === null) return <p className="muted">절리군을 찾을 수 없습니다.</p>;
 
   const priorSet = matchPriorSet(facility?.prior, station?.siteId ?? '', set.name);
-  const oriCmp = priorSet ? compareOrientation(priorSet, set.orientation) : 'none';
-  const ev = evaluateCondition(set.condition);
-  const scoreNow = ev.complete ? ev.score : null;
 
   const save = (patch: Parameters<typeof updateSet>[1]) => updateSet(setid, patch);
 
@@ -65,38 +59,6 @@ export function SetScreen() {
       <p className="crumb">
         {station?.siteId ?? ''} / {set.name}
       </p>
-
-      {priorSet && (
-        <div className="card">
-          <h2>전차 기록</h2>
-          <p className="muted">
-            {station?.siteId} / {set.name} · {priorSetText(priorSet)}
-            {oriCmp === 'same' && ' — 금회 방향이 전차와 같습니다 (10˚ 이내)'}
-            {oriCmp === 'changed' && ' — 금회 방향이 전차와 다릅니다'}
-            {scoreNow !== null && priorSet.score !== undefined && (scoreNow === priorSet.score ? ' · 절리상태 점수 같음' : ` · 절리상태 점수 ${priorSet.score}→${scoreNow}`)}
-          </p>
-          {priorSet.items && (
-            <table className="prior-items">
-              <tbody>
-                {CONDITION_ITEMS.map((k) => {
-                  const pi = priorSet.items![k];
-                  const cur = set.condition[k];
-                  if (!pi) return null;
-                  const diff = cur && pi.score !== undefined && cur.score !== pi.score;
-                  return (
-                    <tr key={k} className={diff ? 'chg' : ''}>
-                      <td>{ITEM_NAMES[k]}</td>
-                      <td>{pi.label}</td>
-                      <td>{pi.score ?? ''}</td>
-                      <td>{cur ? `금회 ${cur.score}${diff ? ' (변경)' : ''}` : ''}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          )}
-        </div>
-      )}
 
       <div className="card">
         <h2>절리군</h2>
@@ -142,7 +104,11 @@ export function SetScreen() {
 
       <div className="card">
         <h2>방향성 (경사 / 경사방향)</h2>
-        <OrientationField value={set.orientation} onChange={(o: SetOrientation) => save({ orientation: o })} />
+        <OrientationField
+          value={set.orientation}
+          onChange={(o: SetOrientation) => save({ orientation: o })}
+          prior={priorSet && priorSet.dip !== undefined && priorSet.dipDir !== undefined ? { dip: priorSet.dip, dipDir: priorSet.dipDir } : undefined}
+        />
       </div>
 
       <div className="card">
@@ -185,7 +151,7 @@ export function SetScreen() {
 
       <div className="card">
         <h2>상세 절리상태 (①~⑤ 배점)</h2>
-        <ConditionForm value={set.condition} onChange={(c: Condition) => save({ condition: c })} />
+        <ConditionForm value={set.condition} onChange={(c: Condition) => save({ condition: c })} prior={priorSet?.items} />
       </div>
 
       <StickyBar>
