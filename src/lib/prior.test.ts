@@ -106,3 +106,31 @@ describe('전차 측정값 구조화·비교', () => {
     expect(matchPriorRebound(prior as never, { staValue: 30 })?.label).toBe('30m');
   });
 });
+
+describe('전차 불연속면 기록', () => {
+  const horizontal = {
+    source: 'a.json', importedAt: 0, tests: [{
+      id: 'd', category: '불연속면 조사', title: 'd',
+      grid: [['구분', 'Set', '경사/경사방향', '절리상태'], ['Site-A', 'Set 1', '80/050', '3'], ['', 'Set 2', '60/200', '4'], ['Site-B', 'Set 1', '45/310', '2']],
+    }],
+  };
+  const vertical = {
+    source: 'b.json', importedAt: 0, tests: [{
+      id: 'v', category: '불연속면', title: 'v',
+      grid: [['Site-A', 'Set 1', 'Set 2', 'Set 3'], ['주향/경사', '80/050', '60/200', ''], ['절리상태', '3.6', '3.6', '3.6']],
+    }],
+  };
+  it('가로형·세로형 표를 읽고 Site·Set 으로 짝짓는다', async () => {
+    const m = await import('./prior');
+    const h = m.priorDiscontinuityRecords(horizontal as never);
+    expect(h).toHaveLength(3);
+    expect(h[0]).toMatchObject({ site: 'A', setNo: 1, dip: 80, dipDir: 50, score: 3 });
+    expect(h[2]).toMatchObject({ site: 'B', setNo: 1, score: 2 });
+    const v = m.priorDiscontinuityRecords(vertical as never);
+    expect(v.find((x) => x.setNo === 2)).toMatchObject({ dip: 60, dipDir: 200, score: 4 });
+    expect(m.matchPriorSet(horizontal as never, 'SITE-B', 'Set 1')?.score).toBe(2);
+    expect(m.compareOrientation(h[0], { dip: 78, dipDirection: 55 })).toBe('same');
+    expect(m.compareOrientation(h[0], { dip: 50, dipDirection: 55 })).toBe('changed');
+    expect(m.priorSetText(h[0])).toBe('80/050 · 절리상태 3');
+  });
+});

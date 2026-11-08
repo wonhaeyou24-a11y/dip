@@ -6,6 +6,7 @@
  */
 import {
   createFacility,
+  createSet,
   createStation,
   db,
   uid,
@@ -30,7 +31,7 @@ const norm = (s: string): string => s.toLowerCase().replace(/[\s_\-.,()·]/g, ''
 export function kindOfCategory(category: string): TestKind | null {
   const c = category || '';
   if (/토양경도|토질|연경도|표준관입/.test(c)) return 'soil';
-  if (/불연속면/.test(c)) return 'discontinuity';
+  if (/불연속면|절리/.test(c)) return 'discontinuity';
   if (/반발경도|슈미트|암반/.test(c)) return 'rebound';
   return null;
 }
@@ -117,6 +118,7 @@ export async function importPriorFiles(projectId: string, files: File[]): Promis
     if (slope) {
       await createSoilPointsFromPrior(target.id);
       await createStationsFromPrior(target.id);
+      await createSetsFromPrior(target.id);
     }
     out.push({ file: file.name, ok: true, facilityName: target.name, created, tests: parsed.prior.tests.length });
   }
@@ -294,4 +296,144 @@ export function compareWithPrior(prior: number[], cur: number[] | undefined): Co
   });
   if (changed) return { state: 'changed', changed, filled };
   return { state: filled < prior.length ? 'partial' : 'same', changed: 0, filled };
+}
+
+// ───────────── 전차 불연속면(절리군) 기록 ─────────────
+export interface PriorSet {
+  /** 측점 구분 (Site-A → 'A') */
+  site: string;
+  setNo: number;
+  dip?: number;
+  dipDir?: number;
+  /** 전차 절리상태 점수 */
+  score?: number;
+}
+
+const SET_RE = /^(?:set|j|절리군|절리)[\s\-_.]*(\d+)$/i;
+const SITE_RE = /(?:site|사이트|측점)[\s\-_.]*([A-Za-z]|\d+)/i;
+const ORI_RE = /(\d{1,2}(?:\.\d+)?)\s*[/˚°]\s*(\d{1,3}(?:\.\d+)?)/;
+
+const siteKey = (s: string): string => {
+  const t = s.trim();
+  return /^\d+$/.test(t) ? String.fromCharCode(64 + Math.min(26, parseInt(t, 10))) : t.toUpperCase();
+};
+
+/**
+ * 전차 불연속면 표 → 절리군 기록. 두 가지 모양을 읽는다.
+ *  ① 가로형: 한 줄이 절리군 하나 (Set 칸 + "80/050" 같은 경사/경사방향 칸 + 점수 칸)
+ *  ② 세로형: 머리글 줄에 Set 1 · Set 2 · … 가 나란히, 아래 줄들에 방향·점수
+ * 읽지 못하면 빈 목록 (원문 표는 그대로 볼 수 있음). 경사/경사방향 순서는 샘플 보고서의 "60/308" 표기를 따른다.
+ */
+export function priorDiscontinuityRecords(prior: PriorData | undefined): PriorSet[] {
+  const out: PriorSet[] = [];
+  for (const t of prior?.tests ?? []) {
+    if (kindOfCategory(t.category) !== 'discontinuity') continue;
+    let site = 'A';
+    let scoreCol = -1;
+    let setCols: { col: number; no: number }[] = [];
+    const seen: Record<string, PriorSet> = {};
+    const put = (s: string, no: number, patch: Partial<PriorSet>) => {
+      const key = `${s}#${no}`;
+      const rec = seen[key] ?? (seen[key] = { site: s, setNo: no });
+      Object.assign(rec, patch);
+      if (!out.includes(rec)) out.push(rec);
+    };
+    for (const row of t.grid) {
+      const cells = row.map((c) => (c ?? '').trim());
+      for (const c of cells) {
+        const m = c.match(SITE_RE);
+        if (m) {
+          site = siteKey(m[1]);
+          break;
+        }
+      }
+      // 세로형 머리글: Set 칸이 2개 이상
+      const sc = cells.map((c, col) => ({ col, m: c.match(SET_RE) })).filter((x) => x.m).map((x) => ({ col: x.col, no: parseInt(x.m![1], 10) }));
+      if (sc.length >= 2) {
+        setCols = sc;
+        continue;
+      }
+      if (cells.some((c) => /절리\s*상태|상태\s*점수|점수/.test(c)) && !cells.some((c) => ORI_RE.test(c))) {
+        const col = cells.findIndex((c) => /절리\s*상태|상태\s*점수|점수/.test(c));
+        if (setCols.length === 0) scoreCol = col;
+      }
+      if (setCols.length) {
+        const label = cells.slice(0, Math.min(3, cells.length)).join(' ');
+        if (/주향|경사|방향/.test(label)) {
+          for (const sc2 of setCols) {
+            const m = (cells[sc2.col] ?? '').match(ORI_RE);
+            if (m) put(site, sc2.no, { dip: parseFloat(m[1]), dipDir: parseFloat(m[2]) });
+          }
+        } else if (/절리\s*상태|점수/.test(label)) {
+          for (const sc2 of setCols) {
+            const v = parseFloat((cells[sc2.col] ?? '').replace(/[^0-9.]/g, ''));
+            if (Number.isFinite(v)) put(site, sc2.no, { score: Math.round(v) });
+          }
+        }
+        continue;
+      }
+      // 가로형 데이터 줄
+      const setCell = cells.map((c) => c.match(SET_RE)).find((m) => m);
+      if (!setCell) continue;
+      const no = parseInt(setCell[1], 10);
+      const ori = cells.map((c) => c.match(ORI_RE)).find((m) => m);
+      const patch: Partial<PriorSet> = {};
+      if (ori) {
+        patch.dip = parseFloat(ori[1]);
+        patch.dipDir = parseFloat(ori[2]);
+      }
+      if (scoreCol >= 0) {
+        const v = parseFloat((cells[scoreCol] ?? '').replace(/[^0-9.]/g, ''));
+        if (Number.isFinite(v)) patch.score = Math.round(v);
+      }
+      put(site, no, patch);
+    }
+  }
+  return out;
+}
+
+export function matchPriorSet(prior: PriorData | undefined, siteId: string, setName: string): PriorSet | undefined {
+  const site = (siteId.match(/SITE[-\s]*([A-Z0-9]+)/i)?.[1] ?? siteId).toUpperCase();
+  const no = parseInt(setName.replace(/[^0-9]/g, ''), 10);
+  return priorDiscontinuityRecords(prior).find((r) => r.site.toUpperCase() === site && r.setNo === no);
+}
+
+const angDiff = (a: number, b: number): number => {
+  const d = Math.abs(((a - b) % 360 + 360) % 360);
+  return d > 180 ? 360 - d : d;
+};
+
+/** 전차 방향과 금회 방향 비교: 경사·경사방향이 각각 10˚ 이내면 같은 절리군으로 본다 */
+export function compareOrientation(pr: PriorSet, cur: { dip: number; dipDirection: number } | null | undefined): 'none' | 'same' | 'changed' {
+  if (!cur || pr.dip === undefined || pr.dipDir === undefined) return 'none';
+  return Math.abs(pr.dip - cur.dip) <= 10 && angDiff(pr.dipDir, cur.dipDirection) <= 10 ? 'same' : 'changed';
+}
+
+export const priorSetText = (p: PriorSet): string =>
+  [p.dip !== undefined && p.dipDir !== undefined ? `${p.dip}/${String(Math.round(p.dipDir)).padStart(3, '0')}` : '', p.score !== undefined ? `절리상태 ${p.score}` : ''].filter(Boolean).join(' · ') || '기록 없음';
+
+/** 전차 측점(Site)·절리군(Set)마다 금회 측점과 절리군을 만들어 둔다. 이미 있으면 건너뜀. 만든 절리군 수를 돌려준다. */
+export async function createSetsFromPrior(facilityId: string): Promise<number> {
+  const f = await db.facilities.get(facilityId);
+  const recs = priorDiscontinuityRecords(f?.prior);
+  let made = 0;
+  for (const rec of recs) {
+    const siteId = `SITE-${rec.site.toUpperCase()}`;
+    const idx = siteId.length === 6 ? siteId.charCodeAt(5) - 65 : -1;
+    if (idx < 0 || idx > 25) continue;
+    let st = (await db.stations.where('facilityId').equals(facilityId).toArray()).find((s) => s.siteId === siteId);
+    while (!st) {
+      await createStation(facilityId);
+      st = (await db.stations.where('facilityId').equals(facilityId).toArray()).find((s) => s.siteId === siteId);
+      if ((await db.stations.where('facilityId').equals(facilityId).count()) > idx + 1) break;
+    }
+    if (!st) continue;
+    const name = `Set ${rec.setNo}`;
+    const have = (await db.sets.where('stationId').equals(st.id).toArray()).some((x) => x.name === name);
+    if (have) continue;
+    const id = await createSet(st.id);
+    await db.sets.update(id, { name });
+    made++;
+  }
+  return made;
 }

@@ -35,7 +35,7 @@ import {
   type ConditionItemKey,
 } from '../scoring/condition';
 import { formatDipDipDir } from '../sensors/orientation';
-import { compareWithPrior, matchPriorRebound, matchPriorSoil } from '../prior';
+import { compareOrientation, compareWithPrior, matchPriorRebound, matchPriorSet, matchPriorSoil, priorSetText } from '../prior';
 
 const solidFill = (argb: string): ExcelJSNS.FillPattern => ({
   type: 'pattern',
@@ -492,6 +492,19 @@ function renderStation(ctx: Ctx, startRow: number, facility: Facility, st: Stati
   });
   fillRow(ctx, r);
   r++;
+
+  if (facility.prior) {
+    put(ctx, r, 1, '전차 기록', { fill: FILL_HEAD, left: true });
+    sets.forEach((s, i) => {
+      const c = setCols(i);
+      const pr = matchPriorSet(facility.prior, st.siteId, s.name);
+      mergeRow(ctx, r, c.l, c.r);
+      const cmp = pr ? compareOrientation(pr, s.orientation) : 'none';
+      put(ctx, r, c.l, pr ? `${priorSetText(pr)}${cmp === 'same' ? ' (방향 동일)' : cmp === 'changed' ? ' (방향 변경)' : ''}${pr.score !== undefined && evaluateCondition(s.condition).complete ? (pr.score === evaluateCondition(s.condition).score ? ' · 점수 동일' : ` · 점수 ${pr.score}→${evaluateCondition(s.condition).score}`) : ''}` : '추가 조사 (전차에 없음)', { fill: solidFill('FFFFF4D6') });
+    });
+    fillRow(ctx, r);
+    r++;
+  }
 
   put(ctx, r, 1, '절리상태점수', { fill: FILL_HEAD, bold: true });
   sets.forEach((_s, i) => {

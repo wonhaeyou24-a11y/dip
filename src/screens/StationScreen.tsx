@@ -2,7 +2,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { MultiValueInput } from '../components/MultiValueInput';
-import { matchPriorRebound } from '../lib/prior';
+import { compareOrientation, matchPriorRebound, matchPriorSet, priorSetText } from '../lib/prior';
 import { PhotoGrid } from '../components/PhotoGrid';
 import { StickyBar, flushAndRun } from '../components/StickyBar';
 import { STATION_PHOTO_CATEGORIES } from '../db/db';
@@ -163,6 +163,17 @@ export function StationScreen() {
                 <span className="muted">
                   {s.orientation ? formatDipDipDir(s.orientation) : '방향성 미측정'} ·{' '}
                   {s.condition.complete ? `절리상태 ${s.condition.score}` : '절리상태 미완'}
+                  {facility?.prior && (() => {
+                    const pr = matchPriorSet(facility.prior, st.siteId, s.name);
+                    if (!pr) return <span className="tag-prior added">추가 조사</span>;
+                    const c = compareOrientation(pr, s.orientation);
+                    return (
+                      <span className={`tag-prior ${c === 'changed' ? 'changed' : c === 'same' ? 'same' : ''}`}>
+                        전차 {priorSetText(pr)}
+                        {c === 'same' ? ' · 같음' : c === 'changed' ? ' · 변경' : ''}
+                      </span>
+                    );
+                  })()}
                 </span>
               </Link>
               <button
