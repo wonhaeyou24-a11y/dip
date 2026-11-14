@@ -5,6 +5,7 @@ import { MultiValueInput } from '../components/MultiValueInput';
 import { compareOrientation, matchPriorRebound, matchPriorReboundSummary, matchPriorSet, priorDiscontinuityRecords, priorSetText, seepageFromText } from '../lib/prior';
 import { useGoParent } from '../lib/nav';
 import { PoleCluster } from '../components/PoleCluster';
+import { SlopeStep } from '../components/SlopeStep';
 import { PhotoGrid } from '../components/PhotoGrid';
 import { StickyBar } from '../components/StickyBar';
 import { STATION_PHOTO_CATEGORIES } from '../db/db';
@@ -36,6 +37,7 @@ export function StationScreen() {
     [sid],
     [] as DiscontinuitySet[],
   );
+  const photoCount = useLiveQuery(() => db.photos.where('ownerId').equals(sid).count(), [sid], 0);
   const [gpsBusy, setGpsBusy] = useState(false);
   const [gpsErr, setGpsErr] = useState<string | null>(null);
   const gpsTried = useRef(false);
@@ -77,12 +79,63 @@ export function StationScreen() {
     return Number.isFinite(n) ? n : undefined;
   };
 
+  // ── 진행 상황: 현장에서 하는 순서대로 6단계, 첫 미완료 단계가 "다음에 할 일" ──
+  const nPoles = st.poles?.length ?? 0;
+  const classified = (st.poleLabels ?? []).some((l) => l >= 0);
+  const blockOk = !!(st.blockSize && (st.blockSize.x || st.blockSize.y || st.blockSize.z));
+  const steps: { n: number; label: string; done: boolean; hint: string }[] = [
+    { n: 1, label: '측점 정보·위치', done: !!st.gps, hint: st.gps ? '위치 확인됨' : '위치(GPS)를 잡으세요' },
+    { n: 2, label: '사면 방향', done: !!st.slope, hint: st.slope ? `${Math.round(st.slope.dip)}/${String(Math.round(st.slope.dipDir)).padStart(3, '0')}` : '사면에 폰을 대고 재세요' },
+    { n: 3, label: '불연속면 측정', done: nPoles >= 3 && classified, hint: nPoles ? (classified ? `${nPoles}개 측정·분류됨` : `${nPoles}개 측정 — [자동 분류]를 누르세요`) : '[측정 시작]으로 면을 연속으로 재세요' },
+    { n: 4, label: '절리군 절리상태', done: sets.length > 0 && sets.every((x) => x.condition.complete), hint: sets.length ? `${sets.filter((x) => x.condition.complete).length}/${sets.length} 완료` : '③에서 [Set 방향을 절리군에 저장]을 누르세요' },
+    { n: 5, label: '누수·암괴·반발경도', done: !!st.seepage && blockOk, hint: !st.seepage ? '누수 상태를 선택하세요' : !blockOk ? '암괴크기를 입력하세요' : '입력됨' },
+    { n: 6, label: '조사 사진', done: photoCount > 0, hint: photoCount ? `${photoCount}장` : '사진을 찍으세요' },
+  ];
+  const nextStep = steps.find((x) => !x.done);
+  const goStep = (n: number) => document.getElementById(`step-${n}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
   return (
     <>
       <p className="crumb">{st.siteId}</p>
 
-      <div className="card">
-        <h2>측점 정보</h2>
+      <div className="card progress-card">
+        <h2>이 측점 조사 진행 ({steps.filter((x) => x.done).length}/{steps.length})</h2>
+        {nextStep ? (
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+            <span>
+              다음에 할 일 <strong style={{ color: '#1f5fd1' }}>{nextStep.n}. {nextStep.label}</strong>
+              <br />
+              <span className="muted">{nextStep.hint}</span>
+            </span>
+            <button className="primary" style={{ width: 'auto', padding: '10px 16px', flex: 'none' }} onClick={() => goStep(nextStep.n)}>
+              가기
+            </button>
+          </div>
+        ) : (
+          <p style={{ marginBottom: 8 }}>
+            <strong style={{ color: '#0a7d3b' }}>이 측점 조사를 마쳤습니다. 측점 목록으로 돌아가 다음 측점을 조사하세요.</strong>
+          </p>
+        )}
+        <div>
+          {steps.map((x) => (
+            <div
+              key={x.n}
+              role="button"
+              tabIndex={0}
+              onClick={() => goStep(x.n)}
+              style={{ display: 'flex', justifyContent: 'space-between', gap: 8, padding: '7px 2px', borderTop: '0.5px solid var(--sep, #ddd)', cursor: 'pointer', fontSize: 14 }}
+            >
+              <strong style={{ color: x.done ? '#0a7d3b' : nextStep?.n === x.n ? '#1f5fd1' : undefined, fontWeight: 600 }}>
+                {x.done ? '✓' : nextStep?.n === x.n ? '▶' : '○'} {x.n}. {x.label}
+              </strong>
+              <span className="muted" style={{ textAlign: 'right', fontSize: 12 }}>{x.done ? x.hint : ''}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="card" id="step-1">
+        <h2>① 측점 정보·위치</h2>
         <div className="rows">
           <div className="row">
             <span className="row-label">Site ID</span>
@@ -146,23 +199,20 @@ export function StationScreen() {
             />
           </div>
         </div>
+        <p className="muted" style={{ marginTop: 8 }}>📍 {gpsBusy ? '위치 측정 중…' : formatGps(st.gps)}</p>
+        {gpsErr && <div className="warn">{gpsErr}</div>}
+        <button className="ghost full" onClick={captureGps} disabled={gpsBusy} style={{ marginTop: 6 }}>
+          {st.gps ? 'GPS 다시 측정' : 'GPS 측정'}
+        </button>
       </div>
+
+      <SlopeStep station={st} />
 
       <PoleCluster station={st} facility={facility} />
 
-      <button
-        className="primary"
-        onClick={async () => {
-          const id = await createSet(sid);
-          navigate(`/f/${fid}/s/${sid}/set/${id}`);
-        }}
-      >
-        ＋ 절리군(Set) 추가
-      </button>
-
-      <div className="card">
-        <h2>절리군 ({sets.length})</h2>
-        {sets.length === 0 && <p className="muted">절리군을 추가하세요.</p>}
+      <div className="card" id="step-4">
+        <h2>④ 절리군별 절리상태 ({sets.length})</h2>
+        {sets.length === 0 && <p className="muted">③에서 [Set 방향을 절리군에 저장]을 누르면 절리군이 만들어집니다.</p>}
         <div className="list">
           {sets.map((s) => (
             <div className="list-item" key={s.id}>
@@ -197,10 +247,23 @@ export function StationScreen() {
             </div>
           ))}
         </div>
+        <details style={{ marginTop: 8 }}>
+          <summary className="muted">고급: 절리군 직접 추가 (측정 없이 방향만 따로 잴 때)</summary>
+          <button
+            className="ghost full"
+            style={{ marginTop: 6 }}
+            onClick={async () => {
+              const id = await createSet(sid);
+              navigate(`/f/${fid}/s/${sid}/set/${id}`);
+            }}
+          >
+            ＋ 절리군(Set) 직접 추가
+          </button>
+        </details>
       </div>
 
-      <div className="card">
-        <h2>측점 공통</h2>
+      <div className="card" id="step-5">
+        <h2>⑤ 누수 · 암괴 · 반발경도</h2>
         <div className="rows">
           <div className="row">
             <span className="row-label">누수 상태</span>
@@ -277,23 +340,14 @@ export function StationScreen() {
         <p className="hint">강도(MPa)는 결과보고에 빈칸으로 출력됩니다 (사무실 기입).</p>
       </div>
 
-      <div className="card">
-        <h2>조사 사진</h2>
+      <div className="card" id="step-6">
+        <h2>⑥ 조사 사진</h2>
         <PhotoGrid
           facilityId={fid}
           ownerType="station"
           ownerId={sid}
           categories={STATION_PHOTO_CATEGORIES}
         />
-      </div>
-
-      <div className="card">
-        <h2>위치 (GPS)</h2>
-        <p className="muted">{gpsBusy ? '측정 중…' : formatGps(st.gps)}</p>
-        {gpsErr && <div className="warn">{gpsErr}</div>}
-        <button className="ghost full" onClick={captureGps} disabled={gpsBusy} style={{ marginTop: 8 }}>
-          {st.gps ? 'GPS 다시 측정' : 'GPS 측정'}
-        </button>
       </div>
 
       <StickyBar>

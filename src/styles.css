@@ -954,3 +954,8 @@ img {
 .prior-scroll { overflow: auto; max-height: 320px; border: 1px solid var(--line, #e5e7eb); border-radius: 8px; }
 .prior-table { border-collapse: collapse; font-size: 12px; min-width: 100%; }
 .prior-table td { border: 1px solid var(--line, #e5e7eb); padding: 3px 6px; white-space: pre-wrap; vertical-align: top; }
+
+/* 진행 카드에서 단계로 이동할 때 위쪽 고정 헤더에 가리지 않게 */
+[id^='step-'] {
+  scroll-margin-top: 76px;
+}

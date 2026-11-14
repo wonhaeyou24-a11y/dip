@@ -9,14 +9,12 @@ import {
   type DiscontinuityType,
   type Facility,
   type PoleRecord,
-  type SetOrientation,
   type Station,
 } from '../db/db';
 import { LEVEL_TEXT, kinematic3 } from '../lib/kinematic';
 import { clusterPoles, recomputeSets, suggestK } from '../lib/setCluster';
 import { stereoSvg } from '../lib/stereo';
 import { MeasureSession } from './MeasureSession';
-import { OrientationField } from './OrientationField';
 
 const TYPES: DiscontinuityType[] = ['절리', '층리', '단층', '편리·엽리', '기타'];
 const pad = (n: number, w: number) => String(Math.round(n)).padStart(w, '0');
@@ -116,13 +114,9 @@ export function PoleCluster({ station, facility }: { station: Station; facility?
   const svgPlanar = poles.length ? stereoSvg({ poles, sets: plotSets, slope: plotSlope, kind: 'planar', size: 340, legend: false }) : '';
   const svgTop = poles.length && plotSlope ? stereoSvg({ poles, sets: [], slope: plotSlope, kind: 'toppling', size: 340, legend: false }) : '';
 
-  const slopeAsOrientation: SetOrientation | null = station.slope
-    ? { dip: station.slope.dip, dipDirection: station.slope.dipDir, strike: (station.slope.dipDir + 270) % 360, method: 'manual', declinationApplied: 0, measuredAt: 0 }
-    : null;
-
   return (
-    <div className="card">
-      <h2>불연속면 측정 · 평사투영 ({poles.length}개)</h2>
+    <div className="card" id="step-3">
+      <h2>③ 불연속면 측정 · 평사투영 ({poles.length}개)</h2>
       <p className="muted">현장에서는 Set 을 정하지 말고 면을 모두 재세요. 분류는 [자동 분류]가 합니다.</p>
       <button className="primary" onClick={ov.open}>
         측정 시작 (여러 면을 연속으로)
@@ -144,15 +138,6 @@ export function PoleCluster({ station, facility }: { station: Station; facility?
         />
       )}
       {msg && <p className="muted">{msg}</p>}
-
-      <details style={{ marginTop: 8 }} open={!station.slope}>
-        <summary>이 측점의 사면 방향 {station.slope ? `(${pad(station.slope.dip, 2)}/${pad(station.slope.dipDir, 3)})` : '(입력 필요)'}</summary>
-        <p className="muted">사면 면에 폰을 대고 재거나 직접 입력하세요. 평사투영해석과 보고서 표의 "비탈면경사방향"에 쓰입니다.</p>
-        <OrientationField
-          value={slopeAsOrientation}
-          onChange={(o) => void saveStation({ slope: { dip: Math.round(o.dip), dipDir: Math.round(o.dipDirection) % 360 } })}
-        />
-      </details>
 
       {poles.length > 0 && (
         <>
