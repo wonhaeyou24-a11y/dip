@@ -2,6 +2,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useGoParent, useOverlay } from '../lib/nav';
+import { setSteps } from '../lib/progress';
 import { ConditionForm } from '../components/ConditionForm';
 import { MeasureSession } from '../components/MeasureSession';
 import { PhotoGrid } from '../components/PhotoGrid';
@@ -37,6 +38,7 @@ export function SetScreen() {
   const { fid = '', sid = '', setid = '' } = useParams();
   const navigate = useNavigate();
   const [copyMsg, setCopyMsg] = useState<string | null>(null);
+  const photoCount = useLiveQuery(() => db.photos.where('ownerId').equals(setid).count(), [setid], 0);
   const find = useOverlay('find');
   const finding = find.isOpen;
   const goParent = useGoParent(`/f/${fid}/s/${sid}`);
@@ -116,8 +118,47 @@ export function SetScreen() {
         </div>
       )}
 
-      <div className="card">
-        <h2>절리군</h2>
+      {(() => {
+        const steps = setSteps(set, photoCount);
+        const next = steps.find((x) => !x.done);
+        const go = (n: number) => document.getElementById(`step-${n}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        return (
+          <div className="card progress-card">
+            <h2>{set.name} 조사 진행 ({steps.filter((x) => x.done).length}/{steps.length})</h2>
+            {next ? (
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                <span>
+                  다음에 할 일 <strong style={{ color: '#1f5fd1' }}>{next.n}. {next.label}</strong>
+                  <br />
+                  <span className="muted">{next.hint}</span>
+                </span>
+                <button className="primary" style={{ width: 'auto', padding: '10px 16px', flex: 'none' }} onClick={() => go(next.n)}>
+                  가기
+                </button>
+              </div>
+            ) : (
+              <p style={{ marginBottom: 8 }}>
+                <strong style={{ color: '#0a7d3b' }}>이 절리군 조사를 마쳤습니다. 아래 [다음] 버튼으로 이동하세요.</strong>
+              </p>
+            )}
+            {steps.map((x) => (
+              <div
+                key={x.n}
+                role="button"
+                tabIndex={0}
+                onClick={() => go(x.n)}
+                style={{ display: 'flex', justifyContent: 'space-between', gap: 8, padding: '7px 2px', borderTop: '0.5px solid var(--sep, #ddd)', cursor: 'pointer', fontSize: 14 }}
+              >
+                <strong style={{ color: x.done ? '#0a7d3b' : next?.n === x.n ? '#1f5fd1' : undefined, fontWeight: 600 }}>
+                  {x.done ? '✓' : next?.n === x.n ? '▶' : '○'} {x.n}. {x.label}
+                </strong>
+                <span className="muted" style={{ textAlign: 'right', fontSize: 12 }}>{x.done ? x.hint : ''}</span>
+              </div>
+            ))}
+            <details style={{ marginTop: 8 }}>
+              <summary className="muted">
+                {set.name} · {set.dtype} — 이름·종류 바꾸기
+              </summary>
         <div className="form-grid">
           <label>
             이름
@@ -158,15 +199,27 @@ export function SetScreen() {
             {copyMsg}
           </p>
         )}
-      </div>
+            </details>
+          </div>
+        );
+      })()}
 
-      <div className="card">
-        <h2>방향성 (경사 / 경사방향)</h2>
+      <div className="card" id="step-1">
+        <h2>① 대표면 찾기{set.orientation ? ` · ${String(Math.round(set.orientation.dip)).padStart(2, '0')}/${String(Math.round(set.orientation.dipDirection)).padStart(3, '0')}` : ''}</h2>
+        {!set.orientation && <p className="muted">이 절리군의 방향이 없습니다. 측점 화면 ③에서 자동 분류 후 저장하거나, 아래에서 직접 측정·입력하세요.</p>}
+        {set.orientation && (
+          <button className="primary" style={{ width: '100%' }} onClick={find.open}>
+            이 절리군 찾기 — 폰을 면에 대 보세요
+          </button>
+        )}
+        <details open={!set.orientation} style={{ marginTop: 8 }}>
+          <summary className="muted">방향 다시 측정 · 직접 수정</summary>
         <OrientationField
           value={set.orientation}
           onChange={(o: SetOrientation) => save({ orientation: o })}
           prior={priorSet && priorSet.dip !== undefined && priorSet.dipDir !== undefined ? { dip: priorSet.dip, dipDir: priorSet.dipDir } : undefined}
         />
+        </details>
         {set.orientation && (
           <>
             {(() => {
@@ -183,9 +236,6 @@ export function SetScreen() {
                 </p>
               ) : null;
             })()}
-            <button className="ghost" style={{ marginTop: 8, width: '100%' }} onClick={find.open}>
-              이 절리군 찾기 — 폰을 면에 대 보세요
-            </button>
           </>
         )}
         {finding && set.orientation && (
@@ -199,14 +249,14 @@ export function SetScreen() {
         )}
       </div>
 
-      <div className="card">
-        <h2>대표면 조사 사진</h2>
+      <div className="card" id="step-2">
+        <h2>② 대표면 조사 사진</h2>
         <p className="muted">절리상태를 조사한 대표면의 사진만 남기면 됩니다 (측정마다 찍을 필요 없음).</p>
         <PhotoGrid facilityId={fid} ownerType="set" ownerId={setid} categories={SET_PHOTO_CATEGORIES} />
       </div>
 
-      <div className="card">
-        <h2>간격 (표 14.7)</h2>
+      <div className="card" id="step-3">
+        <h2>③ 간격 (표 14.7)</h2>
         <div className="seg">
           {SPACING_CLASSES.map((c) => (
             <button
@@ -243,8 +293,8 @@ export function SetScreen() {
         </div>
       </div>
 
-      <div className="card">
-        <h2>상세 절리상태 (①~⑤ 배점)</h2>
+      <div className="card" id="step-4">
+        <h2>④ 상세 절리상태 (①~⑤ 배점)</h2>
         <ConditionForm value={set.condition} onChange={(c: Condition) => save({ condition: c })} prior={priorSet?.items} />
       </div>
 

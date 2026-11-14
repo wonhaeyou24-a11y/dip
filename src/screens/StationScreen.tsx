@@ -4,6 +4,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { MultiValueInput } from '../components/MultiValueInput';
 import { compareOrientation, matchPriorRebound, matchPriorReboundSummary, matchPriorSet, priorDiscontinuityRecords, priorSetText, seepageFromText } from '../lib/prior';
 import { useGoParent } from '../lib/nav';
+import { stationSteps } from '../lib/progress';
 import { PoleCluster } from '../components/PoleCluster';
 import { SlopeStep } from '../components/SlopeStep';
 import { PhotoGrid } from '../components/PhotoGrid';
@@ -80,17 +81,7 @@ export function StationScreen() {
   };
 
   // ── 진행 상황: 현장에서 하는 순서대로 6단계, 첫 미완료 단계가 "다음에 할 일" ──
-  const nPoles = st.poles?.length ?? 0;
-  const classified = (st.poleLabels ?? []).some((l) => l >= 0);
-  const blockOk = !!(st.blockSize && (st.blockSize.x || st.blockSize.y || st.blockSize.z));
-  const steps: { n: number; label: string; done: boolean; hint: string }[] = [
-    { n: 1, label: '측점 정보·위치', done: !!st.gps, hint: st.gps ? '위치 확인됨' : '위치(GPS)를 잡으세요' },
-    { n: 2, label: '사면 방향', done: !!st.slope, hint: st.slope ? `${Math.round(st.slope.dip)}/${String(Math.round(st.slope.dipDir)).padStart(3, '0')}` : '사면에 폰을 대고 재세요' },
-    { n: 3, label: '불연속면 측정', done: nPoles >= 3 && classified, hint: nPoles ? (classified ? `${nPoles}개 측정·분류됨` : `${nPoles}개 측정 — [자동 분류]를 누르세요`) : '[측정 시작]으로 면을 연속으로 재세요' },
-    { n: 4, label: '절리군 절리상태', done: sets.length > 0 && sets.every((x) => x.condition.complete), hint: sets.length ? `${sets.filter((x) => x.condition.complete).length}/${sets.length} 완료` : '③에서 [Set 방향을 절리군에 저장]을 누르세요' },
-    { n: 5, label: '누수·암괴·반발경도', done: !!st.seepage && blockOk, hint: !st.seepage ? '누수 상태를 선택하세요' : !blockOk ? '암괴크기를 입력하세요' : '입력됨' },
-    { n: 6, label: '조사 사진', done: photoCount > 0, hint: photoCount ? `${photoCount}장` : '사진을 찍으세요' },
-  ];
+  const steps = stationSteps(st, sets, photoCount);
   const nextStep = steps.find((x) => !x.done);
   const goStep = (n: number) => document.getElementById(`step-${n}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
