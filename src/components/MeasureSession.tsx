@@ -75,7 +75,7 @@ interface Props {
   /** find 모드: 찾을 면 */
   target?: Pole;
   targetLabel?: string;
-  onAdd?: (dip: number, dipDir: number) => void;
+  onAdd?: (dip: number, dipDir: number, spread?: number) => void;
   onUndo?: () => void;
   onClose: () => void;
 }
@@ -91,8 +91,10 @@ export function MeasureSession({ title, mode, poles = [], sets = [], target, tar
 
   const record = useCallback(() => {
     if (!cur || !onAdd) return;
-    onAdd(Math.round(cur.dip), Math.round(cur.dipDir));
-    setFlash(`#${poles.length + 1} ${pad(cur.dip, 2)}/${pad(cur.dipDir, 3)} 저장`);
+    const last = poles[poles.length - 1];
+    const dup = last && planeAngle(cur, last) < 3;
+    onAdd(Math.round(cur.dip), Math.round(cur.dipDir), live ? Math.round(live.quality.spreadDeg) : undefined);
+    setFlash(`#${poles.length + 1} ${pad(cur.dip, 2)}/${pad(cur.dipDir, 3)} 저장${dup ? ' — 직전 측정과 거의 같습니다(같은 면을 두 번 잰 건 아닌가요?)' : ''}`);
     if (navigator.vibrate) navigator.vibrate(40);
   }, [cur, onAdd, poles.length]);
 

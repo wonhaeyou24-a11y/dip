@@ -42,7 +42,21 @@ export const STATION_PHOTO_CATEGORIES = [
 /** 토양경도 조사 사진 (2종) */
 export const SOIL_PHOTO_CATEGORIES = ['토양경도 조사 사진 ①', '토양경도 조사 사진 ②'] as const;
 
-export type OwnerType = 'station' | 'soil';
+export type OwnerType = 'station' | 'soil' | 'set';
+
+/** 절리군(Set) 대표면 조사 사진 (2종) */
+export const SET_PHOTO_CATEGORIES = ['대표면 조사 사진 ①', '대표면 조사 사진 ②'] as const;
+
+/** 측점에서 잰 불연속면 하나 (번호는 목록 순서 #1, #2 …) */
+export interface PoleRecord {
+  dip: number;
+  dipDir: number;
+  /** 불연속면 종류 (기본 절리) */
+  type?: DiscontinuityType;
+  note?: string;
+  /** 센서 측정 편차(°) — 클수록 신뢰도 낮음 */
+  spread?: number;
+}
 
 /** 프로젝트(용역) — 시설물을 묶는 단위 */
 export interface Project {
@@ -117,7 +131,9 @@ export interface Station {
   /** 반발경도 R 값 (최대 20개) */
   reboundValues?: number[];
   /** 사이트에서 잰 불연속면 극점 전체 (경사/경사방향) — 평사투영에서 Set 으로 묶는다 */
-  poles?: { dip: number; dipDir: number }[];
+  poles?: PoleRecord[];
+  /** 이 측점(구간)의 사면 경사·경사방향 — 평사투영해석에 쓴다 (없으면 시설물 분석값) */
+  slope?: { dip: number; dipDir: number };
   /** 극점별 소속 Set 번호(0부터, 예외는 -1) */
   poleLabels?: number[];
   /** 묶을 Set 개수 */
@@ -537,8 +553,9 @@ export async function deleteSoilCascade(soilId: string): Promise<void> {
 }
 
 export async function deleteSetCascade(setId: string): Promise<void> {
-  await db.transaction('rw', [db.sets, db.measurements], async () => {
+  await db.transaction('rw', [db.sets, db.measurements, db.photos], async () => {
     await db.measurements.where('setId').equals(setId).delete();
+    await db.photos.where('ownerId').equals(setId).delete();
     await db.sets.delete(setId);
   });
 }

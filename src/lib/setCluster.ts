@@ -167,3 +167,43 @@ export function recomputeSets(poles: Pole[], labels: number[], k: number): SetRe
   }
   return out;
 }
+
+/** 두 극점 사이각(°, 축 자료) */
+function ang(a: Pole, b: Pole): number {
+  return planeAngle(a, b);
+}
+
+/**
+ * Set 개수 제안: k=1~5 로 묶어 보고 실루엣 점수(군집 응집·분리)가 가장 좋은 k 를 고른다.
+ * 극점이 6개 미만이면 제안하지 않는다. quality 는 -1~1 (0.5 이상이면 뚜렷).
+ */
+export function suggestK(poles: Pole[], maxK = 5): { k: number; quality: number; scores: { k: number; q: number }[] } | null {
+  if (poles.length < 6) return null;
+  const scores: { k: number; q: number }[] = [];
+  for (let k = 2; k <= Math.min(maxK, Math.floor(poles.length / 2)); k++) {
+    const r = clusterPoles(poles, k);
+    const lab = r.labels;
+    let sum = 0;
+    let cnt = 0;
+    poles.forEach((p, i) => {
+      if (lab[i] < 0) return;
+      const own: number[] = [];
+      const other = new Map<number, number[]>();
+      poles.forEach((q, j) => {
+        if (i === j || lab[j] < 0) return;
+        const d = ang(p, q);
+        if (lab[j] === lab[i]) own.push(d);
+        else other.set(lab[j], [...(other.get(lab[j]) ?? []), d]);
+      });
+      if (!own.length || !other.size) return;
+      const a = own.reduce((x, y) => x + y, 0) / own.length;
+      const b = Math.min(...[...other.values()].map((v) => v.reduce((x, y) => x + y, 0) / v.length));
+      sum += (b - a) / Math.max(a, b, 1e-9);
+      cnt++;
+    });
+    scores.push({ k, q: cnt ? sum / cnt : -1 });
+  }
+  if (!scores.length) return null;
+  const best = scores.slice().sort((x, y) => y.q - x.q)[0];
+  return { k: best.k, quality: best.q, scores };
+}

@@ -1,37 +1,28 @@
 import { useMemo, useState } from 'react';
-import { createSet, db, updateFacility, updateSet, updateStation, type Facility, type Station } from '../db/db';
-import { clusterPoles, poleVec, recomputeSets, type Pole } from '../lib/setCluster';
+import {
+  createSet,
+  db,
+  updateFacility,
+  updateSet,
+  updateStation,
+  type DiscontinuityType,
+  type Facility,
+  type PoleRecord,
+  type SetOrientation,
+  type Station,
+} from '../db/db';
+import { LEVEL_TEXT, kinematic3 } from '../lib/kinematic';
+import { clusterPoles, recomputeSets, suggestK } from '../lib/setCluster';
+import { stereoSvg } from '../lib/stereo';
 import { MeasureSession } from './MeasureSession';
-import { kinematic } from '../lib/kinematic';
+import { OrientationField } from './OrientationField';
 
-const COLORS = ['#e4572e', '#2e86de', '#2fa84f', '#a64ac9', '#e0a100'];
-const RAD = Math.PI / 180;
+const TYPES: DiscontinuityType[] = ['절리', '층리', '단층', '편리·엽리', '기타'];
 const pad = (n: number, w: number) => String(Math.round(n)).padStart(w, '0');
-
-/** 등면적(슈미트) 하반구 투영: 극점 → 원 안 좌표(반지름 1) */
-function proj(v: [number, number, number]): [number, number] {
-  let [x, y, z] = v;
-  if (z < 0) [x, y, z] = [-x, -y, -z];
-  const th = Math.acos(Math.min(1, z)); // 연직에서 떨어진 각
-  const r = Math.SQRT2 * Math.sin(th / 2);
-  const h = Math.hypot(x, y) || 1;
-  return [(x / h) * r, -(y / h) * r];
-}
-/** 평면의 대원(큰 원) 점들 */
-function greatCircle(dip: number, dipDir: number): string {
-  const strike = dipDir - 90;
-  const pts: string[] = [];
-  for (let a = 0; a <= 180; a += 3) {
-    const pl = Math.atan(Math.tan(dip * RAD) * Math.sin(a * RAD));
-    const tr = (strike + a) * RAD;
-    const [px, py] = proj([Math.cos(pl) * Math.sin(tr), Math.cos(pl) * Math.cos(tr), Math.sin(pl)]);
-    pts.push(`${px.toFixed(4)},${py.toFixed(4)}`);
-  }
-  return pts.join(' ');
-}
+const COLORS = ['#e4572e', '#2e86de', '#2fa84f', '#a64ac9', '#e0a100'];
 
 export function PoleCluster({ station, facility }: { station: Station; facility?: Facility }) {
-  const poles: Pole[] = useMemo(() => station.poles ?? [], [station.poles]);
+  const poles: PoleRecord[] = useMemo(() => station.poles ?? [], [station.poles]);
   const k = station.poleK ?? 3;
   const labels = useMemo(() => {
     const l = station.poleLabels ?? [];
@@ -42,110 +33,103 @@ export function PoleCluster({ station, facility }: { station: Station; facility?
   const [dir, setDir] = useState('');
   const [msg, setMsg] = useState('');
   const [session, setSession] = useState(false);
+  const [typeFilter, setTypeFilter] = useState<'전체' | DiscontinuityType>('전체');
   const an = facility?.analysis ?? {};
+  const slopeDip = station.slope?.dip ?? an.slopeDip;
+  const slopeDir = station.slope?.dipDir ?? an.slopeDipDir;
+  const friction = an.friction;
+  const sg = useMemo(() => suggestK(poles.filter((p) => typeFilter === '전체' || (p.type ?? '절리') === typeFilter)), [poles, typeFilter]);
 
   const saveStation = (patch: Partial<Station>) => updateStation(station.id, patch);
-  const addPole = (d: number, dd: number) => {
-    if (!Number.isFinite(d) || !Number.isFinite(dd) || d < 0 || d > 90 || dd < 0 || dd > 360) {
-      setMsg('경사 0~90, 경사방향 0~360 으로 입력하세요.');
-      return false;
-    }
-    setMsg('');
-    void saveStation({ poles: [...poles, { dip: d, dipDir: dd % 360 }], poleLabels: [...labels, -1] });
-    return true;
-  };
-  const appendPole = async (d: number, dd: number) => {
+  const appendPole = async (rec: PoleRecord) => {
     const cur = await db.stations.get(station.id);
     const ps = cur?.poles ?? [];
     const ls = cur?.poleLabels ?? [];
-    await updateStation(station.id, { poles: [...ps, { dip: d, dipDir: dd % 360 }], poleLabels: [...ps.map((_, i) => ls[i] ?? -1), -1] });
+    await updateStation(station.id, { poles: [...ps, rec], poleLabels: [...ps.map((_, i) => ls[i] ?? -1), -1] });
   };
   const undoPole = async () => {
     const cur = await db.stations.get(station.id);
     const ps = (cur?.poles ?? []).slice(0, -1);
     await updateStation(station.id, { poles: ps, poleLabels: (cur?.poleLabels ?? []).slice(0, ps.length) });
   };
-  const auto = (kk = k) => {
-    const r = clusterPoles(poles, kk);
-    void saveStation({ poleK: kk, poleLabels: r.labels });
+  const addManual = () => {
+    const d = parseFloat(dip);
+    const dd = parseFloat(dir);
+    if (!Number.isFinite(d) || !Number.isFinite(dd) || d < 0 || d > 90 || dd < 0 || dd > 360) {
+      setMsg('경사 0~90, 경사방향 0~360 으로 입력하세요.');
+      return;
+    }
+    setMsg('');
+    void appendPole({ dip: d, dipDir: dd % 360, type: '절리' });
+    setDip('');
+    setDir('');
   };
-  const cycle = (i: number) => {
+  const auto = (kk = k) => {
+    const idx = poles.map((_, i) => i).filter((i) => typeFilter === '전체' || (poles[i].type ?? '절리') === typeFilter);
+    const r = clusterPoles(idx.map((i) => poles[i]), kk);
+    const next = poles.map(() => -1);
+    idx.forEach((i, j) => (next[i] = r.labels[j]));
+    void saveStation({ poleK: kk, poleLabels: next });
+  };
+  const setLabel = (i: number, l: number) => {
     const next = labels.slice();
-    next[i] = next[i] >= k - 1 ? -1 : next[i] + 1;
+    next[i] = l;
     void saveStation({ poleLabels: next });
   };
+  const editPole = (i: number, patch: Partial<PoleRecord>) => void saveStation({ poles: poles.map((p, j) => (j === i ? { ...p, ...patch } : p)) });
+
   const confirmSets = async () => {
     const existing = await db.sets.where('stationId').equals(station.id).sortBy('order');
-    const used = sets.filter((s) => s.count > 0);
-    if (!used.length) return;
-    if (
-      existing.length &&
-      !confirm(`이 측점의 절리군 ${existing.length}개 중 앞의 ${Math.min(existing.length, used.length)}개의 방향을 덮어씁니다. 계속할까요?`)
-    )
-      return;
-    for (let i = 0; i < used.length; i++) {
-      const id = existing[i]?.id ?? (await createSet(station.id));
-      const d = Math.round(used[i].dip);
-      const dd = Math.round(used[i].dipDir) % 360;
+    const usedSets = sets.map((s, i) => ({ s, i })).filter((x) => x.s.count > 0);
+    if (!usedSets.length) return;
+    if (existing.length && !confirm(`이 측점의 절리군 ${existing.length}개 중 앞의 ${Math.min(existing.length, usedSets.length)}개의 방향을 덮어씁니다. 계속할까요?`)) return;
+    for (let n = 0; n < usedSets.length; n++) {
+      const id = existing[n]?.id ?? (await createSet(station.id));
+      const d = Math.round(usedSets[n].s.dip);
+      const dd = Math.round(usedSets[n].s.dipDir) % 360;
       await updateSet(id, {
         orientation: { dip: d, dipDirection: dd, strike: (dd + 270) % 360, method: 'manual', declinationApplied: 0, measuredAt: Date.now() },
       });
     }
-    setMsg(`절리군 ${used.length}개의 방향을 저장했습니다. 아래 목록에서 절리상태를 입력하세요.`);
+    setMsg(`절리군 ${usedSets.length}개의 방향을 저장했습니다. 아래 목록에서 절리상태를 입력하세요.`);
   };
   const setAn = (key: keyof NonNullable<Facility['analysis']>, v: string) => {
     if (!facility) return;
     const n = parseFloat(v);
     void updateFacility(facility.id, { analysis: { ...an, [key]: Number.isFinite(n) ? n : undefined } });
   };
+
   const used = sets.map((s, i) => ({ s, i })).filter((x) => x.s.count > 0);
-  const kin =
-    an.slopeDip !== undefined && an.slopeDipDir !== undefined && an.friction !== undefined && used.length
-      ? (() => {
-          const r = kinematic(used.map((x) => x.s), { dip: an.slopeDip, dipDir: an.slopeDipDir, friction: an.friction });
-          // 결과의 set/a/b 는 used 배열 순번 → 실제 Set 번호로 바꾼다
-          return {
-            planar: r.planar.map((x) => ({ ...x, set: used[x.set].i })),
-            toppling: r.toppling.map((x) => ({ ...x, set: used[x.set].i })),
-            wedge: r.wedge.map((x) => ({ ...x, a: used[x.a].i, b: used[x.b].i })),
-          };
-        })()
-      : null;
-  const planar = (s: { dip: number; dipDir: number }) => {
-    if (an.slopeDip === undefined || an.slopeDipDir === undefined) return '';
-    const dd = Math.abs(((s.dipDir - an.slopeDipDir + 540) % 360) - 180);
-    const ok = dd <= 20 && s.dip < an.slopeDip && (an.friction === undefined || s.dip > an.friction);
-    return ok ? '가능' : '낮음';
-  };
+  const slopeOk = slopeDip !== undefined && slopeDir !== undefined && friction !== undefined;
+  const plotSlope = slopeOk ? { dip: slopeDip!, dipDir: slopeDir!, friction: friction! } : null;
+  const k3 = slopeOk && used.length ? kinematic3(poles, labels, used.map((x) => x.s), plotSlope!) : null;
+  const plotSets = used.map((x) => ({ dip: x.s.dip, dipDir: x.s.dipDir, name: `J${x.i + 1}` }));
+  const svgPlanar = poles.length ? stereoSvg({ poles, sets: plotSets, slope: plotSlope, kind: 'planar', size: 340, legend: false }) : '';
+  const svgTop = poles.length && plotSlope ? stereoSvg({ poles, sets: [], slope: plotSlope, kind: 'toppling', size: 340, legend: false }) : '';
+
+  const slopeAsOrientation: SetOrientation | null = station.slope
+    ? { dip: station.slope.dip, dipDirection: station.slope.dipDir, strike: (station.slope.dipDir + 270) % 360, method: 'manual', declinationApplied: 0, measuredAt: 0 }
+    : null;
 
   return (
     <div className="card">
       <h2>불연속면 측정 · 평사투영 ({poles.length}개)</h2>
-      <p className="muted">사이트에서 잰 불연속면을 모두 넣고 [자동 분류]를 누르세요. 점을 누르면 다른 Set 으로 옮길 수 있습니다.</p>
-      <div className="row-inline" style={{ gap: 6, flexWrap: 'wrap' }}>
-        <input inputMode="decimal" placeholder="경사" value={dip} onChange={(e) => setDip(e.target.value)} style={{ width: 70 }} />
-        <input inputMode="decimal" placeholder="경사방향" value={dir} onChange={(e) => setDir(e.target.value)} style={{ width: 90 }} />
-        <button
-          onClick={() => {
-            if (addPole(parseFloat(dip), parseFloat(dir))) {
-              setDip('');
-              setDir('');
-            }
-          }}
-        >
-          추가
-        </button>
-      </div>
-      <button className="primary" style={{ marginTop: 8 }} onClick={() => setSession(true)}>
+      <p className="muted">현장에서는 Set 을 정하지 말고 면을 모두 재세요. 분류는 [자동 분류]가 합니다.</p>
+      <button className="primary" onClick={() => setSession(true)}>
         측정 시작 (여러 면을 연속으로)
       </button>
+      <div className="row-inline" style={{ gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
+        <input inputMode="decimal" placeholder="경사" value={dip} onChange={(e) => setDip(e.target.value)} style={{ width: 70 }} />
+        <input inputMode="decimal" placeholder="경사방향" value={dir} onChange={(e) => setDir(e.target.value)} style={{ width: 90 }} />
+        <button onClick={addManual}>직접 추가</button>
+      </div>
       {session && (
         <MeasureSession
           title={`${station.siteId} 불연속면 측정`}
           mode="measure"
           poles={poles}
           sets={sets}
-          onAdd={(d, dd) => void appendPole(d, dd)}
+          onAdd={(d, dd, spread) => void appendPole({ dip: d, dipDir: dd, type: '절리', spread })}
           onUndo={() => void undoPole()}
           onClose={() => {
             setSession(false);
@@ -154,6 +138,16 @@ export function PoleCluster({ station, facility }: { station: Station; facility?
         />
       )}
       {msg && <p className="muted">{msg}</p>}
+
+      <details style={{ marginTop: 8 }} open={!station.slope}>
+        <summary>이 측점의 사면 방향 {station.slope ? `(${pad(station.slope.dip, 2)}/${pad(station.slope.dipDir, 3)})` : '(입력 필요)'}</summary>
+        <p className="muted">사면 면에 폰을 대고 재거나 직접 입력하세요. 평사투영해석과 보고서 표의 "비탈면경사방향"에 쓰입니다.</p>
+        <OrientationField
+          value={slopeAsOrientation}
+          onChange={(o) => void saveStation({ slope: { dip: Math.round(o.dip), dipDir: Math.round(o.dipDirection) % 360 } })}
+        />
+      </details>
+
       {poles.length > 0 && (
         <>
           <div className="row-inline" style={{ gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
@@ -165,77 +159,95 @@ export function PoleCluster({ station, facility }: { station: Station; facility?
                 </option>
               ))}
             </select>
+            <label>분류 대상</label>
+            <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value as '전체' | DiscontinuityType)}>
+              <option value="전체">전체</option>
+              {TYPES.map((t) => (
+                <option key={t} value={t}>
+                  {t}만
+                </option>
+              ))}
+            </select>
             <button className="primary" onClick={() => auto()}>
               자동 분류
             </button>
-            <button
-              onClick={() => {
-                if (confirm('측정을 모두 지울까요?')) void saveStation({ poles: [], poleLabels: [] });
-              }}
-            >
-              전체 지우기
-            </button>
           </div>
-          <svg viewBox="-1.1 -1.1 2.2 2.2" style={{ width: '100%', maxWidth: 340, display: 'block', margin: '8px auto' }}>
-            <circle r="1" fill="none" stroke="currentColor" strokeWidth="0.01" />
-            <line x1="-1" x2="1" y1="0" y2="0" stroke="currentColor" strokeWidth="0.004" opacity="0.4" />
-            <line x1="0" x2="0" y1="-1" y2="1" stroke="currentColor" strokeWidth="0.004" opacity="0.4" />
-            <text x="0" y="-1.03" fontSize="0.08" textAnchor="middle" fill="currentColor">
-              N
-            </text>
-            {sets.map((s, i) =>
-              s.count > 0 ? <polyline key={i} points={greatCircle(s.dip, s.dipDir)} fill="none" stroke={COLORS[i % 5]} strokeWidth="0.012" opacity="0.7" /> : null,
-            )}
-            {poles.map((p, i) => {
-              const [x, y] = proj(poleVec(p));
-              const c = labels[i] >= 0 ? COLORS[labels[i] % 5] : '#888';
-              return (
-                <g key={i} onClick={() => cycle(i)} style={{ cursor: 'pointer' }}>
-                  <circle cx={x} cy={y} r="0.045" fill={c} stroke="#fff" strokeWidth="0.008" />
-                  <text x={x} y={y + 0.018} fontSize="0.05" textAnchor="middle" fill="#fff">{i + 1}</text>
-                </g>
-              );
-            })}
-          </svg>
+          {sg && (
+            <p className="muted" style={{ marginTop: 6 }}>
+              추천 Set 개수: <strong>{sg.k}개</strong> (군집 품질 {sg.quality.toFixed(2)} — 0.5 이상이면 뚜렷)
+              {sg.k !== k && (
+                <>
+                  {' '}
+                  <button className="ghost" onClick={() => auto(sg.k)}>
+                    {sg.k}개로 분류
+                  </button>
+                </>
+              )}
+            </p>
+          )}
+          <div dangerouslySetInnerHTML={{ __html: svgPlanar }} style={{ width: '100%', maxWidth: 360, margin: '8px auto' }} />
+          {svgTop && <div dangerouslySetInnerHTML={{ __html: svgTop }} style={{ width: '100%', maxWidth: 360, margin: '0 auto' }} />}
+
           <div className="list">
             {sets.map((s, i) => (
               <div className="list-item" key={i}>
                 <span className="list-main">
                   <strong style={{ color: COLORS[i % 5] }}>● SET{i + 1}</strong>
                   <span className="muted">
-                    {s.count
-                      ? `${pad(s.dip, 2)}/${pad(s.dipDir, 3)} · ${s.count}개${s.fisherK ? ` · K=${s.fisherK.toFixed(0)}` : ''}${planar(s) ? ` · 평면파괴 ${planar(s)}(참고)` : ''}`
-                      : '극점 없음'}
+                    {s.count ? `${pad(s.dip, 2)}/${pad(s.dipDir, 3)} · ${s.count}개${s.fisherK ? ` · K=${s.fisherK.toFixed(0)}` : ''}${s.count < 3 ? ' · 자료 부족' : ''}` : '극점 없음'}
                   </span>
                 </span>
               </div>
             ))}
-            {labels.some((l) => l < 0) && <p className="muted">회색 점 {labels.filter((l) => l < 0).length}개는 어느 Set 에도 넣지 않은 예외 극점입니다.</p>}
+            {labels.some((l) => l < 0) && <p className="muted">예외 극점 {labels.filter((l) => l < 0).length}개는 어느 Set 에도 넣지 않았습니다.</p>}
           </div>
-          {kin && (
+
+          {k3 ? (
             <div className="list" style={{ marginTop: 8 }}>
               <strong>운동학적 검토 (참고)</strong>
-              {kin.planar.map((r) => (
-                <div key={'p' + r.set} className="muted">평면파괴 SET{r.set + 1}: <strong>{r.ok ? '가능' : '낮음'}</strong> — {r.reason}</div>
-              ))}
-              {kin.wedge.map((r) => (
-                <div key={'w' + r.a + r.b} className="muted">쐐기파괴 SET{r.a + 1}×SET{r.b + 1}: <strong>{r.ok ? '가능' : '낮음'}</strong> — {r.reason}</div>
-              ))}
-              {kin.toppling.map((r) => (
-                <div key={'t' + r.set} className="muted">전도파괴 SET{r.set + 1}: <strong>{r.ok ? '가능' : '낮음'}</strong> — {r.reason}</div>
-              ))}
+              <div className="muted">
+                평면파괴: <strong>{LEVEL_TEXT[k3.planar.level]}</strong>
+                {k3.planar.critical.length ? ` — 위험 영역 극점 ${k3.planar.critical.map((i) => '#' + (i + 1)).join(', ')}` : ''}
+              </div>
+              <div className="muted">
+                쐐기파괴: <strong>{LEVEL_TEXT[k3.wedge.level]}</strong>
+                {k3.wedge.critical.length ? ` — 위험 교선 ${k3.wedge.critical.length}개 (서로 다른 Set 극점 ${k3.wedge.total}쌍 중)` : ''}
+              </div>
+              <div className="muted">
+                전도파괴: <strong>{LEVEL_TEXT[k3.toppling.level]}</strong>
+                {k3.toppling.critical.length ? ` — 위험 영역 극점 ${k3.toppling.critical.map((i) => '#' + (i + 1)).join(', ')}` : ''}
+              </div>
+              <p className="muted">허용 방향 편차 평면·전도 20° 기준. "국부적"은 Set 평균은 아니지만 개별 극점·교선이 기준에 들어간 경우입니다.</p>
             </div>
+          ) : (
+            <p className="muted">사면 방향(위)과 마찰각(아래 분석값)을 넣으면 평면·쐐기·전도파괴 가능성이 표시됩니다.</p>
           )}
-          <button className="primary" onClick={() => void confirmSets()}>
+
+          <button className="primary" style={{ marginTop: 8 }} onClick={() => void confirmSets()}>
             Set 방향을 절리군에 저장
           </button>
           <details style={{ marginTop: 8 }}>
-            <summary>측정 목록</summary>
+            <summary>측정 목록 (번호·종류·Set·메모)</summary>
             {poles.map((p, i) => (
-              <div className="list-item" key={i}>
+              <div className="list-item" key={i} style={{ flexWrap: 'wrap', gap: 4 }}>
                 <span className="list-main">
-                  {pad(p.dip, 2)}/{pad(p.dipDir, 3)} {labels[i] >= 0 ? `SET${labels[i] + 1}` : '예외'}
+                  #{i + 1} {pad(p.dip, 2)}/{pad(p.dipDir, 3)}
+                  {p.spread !== undefined && p.spread > 8 ? <span className="tag-prior changed">센서 편차 {p.spread}°</span> : null}
                 </span>
+                <select value={p.type ?? '절리'} onChange={(e) => editPole(i, { type: e.target.value as DiscontinuityType })}>
+                  {TYPES.map((t) => (
+                    <option key={t}>{t}</option>
+                  ))}
+                </select>
+                <select value={labels[i]} onChange={(e) => setLabel(i, parseInt(e.target.value, 10))}>
+                  <option value={-1}>예외</option>
+                  {Array.from({ length: k }, (_, n) => (
+                    <option key={n} value={n}>
+                      SET{n + 1}
+                    </option>
+                  ))}
+                </select>
+                <input placeholder="메모" defaultValue={p.note ?? ''} onBlur={(e) => editPole(i, { note: e.target.value })} style={{ width: 110 }} />
                 <button
                   className="link-danger"
                   onClick={() => void saveStation({ poles: poles.filter((_, j) => j !== i), poleLabels: labels.filter((_, j) => j !== i) })}
@@ -244,18 +256,26 @@ export function PoleCluster({ station, facility }: { station: Station; facility?
                 </button>
               </div>
             ))}
+            <button
+              className="ghost"
+              onClick={() => {
+                if (confirm('측정을 모두 지울까요?')) void saveStation({ poles: [], poleLabels: [] });
+              }}
+            >
+              전체 지우기
+            </button>
           </details>
         </>
       )}
       {facility && (
-        <details style={{ marginTop: 8 }}>
+        <details style={{ marginTop: 8 }} open={friction === undefined}>
           <summary>분석값 입력 (시설물 공통)</summary>
           <div className="rows">
             {(
               [
-                ['slopeDip', '사면 경사(°)'],
-                ['slopeDipDir', '사면 경사방향(°)'],
                 ['friction', '마찰각 φ(°)'],
+                ['slopeDip', '사면 경사(°) — 측점별 값이 없을 때'],
+                ['slopeDipDir', '사면 경사방향(°) — 측점별 값이 없을 때'],
               ] as const
             ).map(([key, label]) => (
               <div className="row" key={key}>
@@ -264,7 +284,7 @@ export function PoleCluster({ station, facility }: { station: Station; facility?
               </div>
             ))}
           </div>
-          <p className="muted">사면 경사·경사방향과 마찰각을 넣으면 평면·쐐기·전도파괴 가능성이 표시됩니다. (평사투영 해석에는 점착력을 쓰지 않습니다)</p>
+          <p className="muted">평사투영 해석에는 점착력을 쓰지 않습니다.</p>
         </details>
       )}
     </div>

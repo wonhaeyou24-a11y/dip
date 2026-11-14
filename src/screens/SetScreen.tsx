@@ -3,11 +3,13 @@ import { useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ConditionForm } from '../components/ConditionForm';
 import { MeasureSession } from '../components/MeasureSession';
+import { PhotoGrid } from '../components/PhotoGrid';
 import { OrientationField } from '../components/OrientationField';
 import { planeAngle } from '../lib/setCluster';
 import { StickyBar, flushAndRun } from '../components/StickyBar';
 import {
   copyPreviousSet,
+  SET_PHOTO_CATEGORIES,
   createSet,
   db,
   updateSet,
@@ -190,6 +192,12 @@ export function SetScreen() {
             onClose={() => setFinding(false)}
           />
         )}
+      </div>
+
+      <div className="card">
+        <h2>대표면 조사 사진</h2>
+        <p className="muted">절리상태를 조사한 대표면의 사진만 남기면 됩니다 (측정마다 찍을 필요 없음).</p>
+        <PhotoGrid facilityId={fid} ownerType="set" ownerId={setid} categories={SET_PHOTO_CATEGORIES} />
       </div>
 
       <div className="card">

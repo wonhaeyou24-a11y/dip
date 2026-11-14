@@ -112,3 +112,48 @@ export function kinematic(sets: Plane[], slope: SlopeInfo, opt: KinOptions = {})
   }
   return res;
 }
+
+// ───────── 3단계 판정 (없음 / 국부적 / 가능) — Set 평균 + 개별 극점·교선 ─────────
+export type Level = 'none' | 'local' | 'possible';
+export const LEVEL_TEXT: Record<Level, string> = { none: '가능성 낮음', local: '국부적 가능성 있음', possible: '가능성 있음' };
+
+export interface Level3 {
+  planar: { level: Level; critical: number[]; total: number };
+  wedge: { level: Level; critical: [number, number][]; total: number };
+  toppling: { level: Level; critical: number[]; total: number };
+}
+
+/**
+ * poles: 모든 극점, labels: 극점별 Set 번호(-1=예외), sets: Set 평균(번호 순서).
+ * possible = Set 평균이 기준을 만족, local = 평균은 아니지만 개별 극점(평면·전도) 또는 서로 다른 Set 극점 쌍의 교선(쐐기 2개 이상)이 기준을 만족.
+ */
+export function kinematic3(poles: Plane[], labels: number[], sets: Plane[], slope: SlopeInfo, opt: KinOptions = {}): Level3 {
+  const pTol = opt.planarDirTol ?? 20;
+  const tTol = opt.topplingDirTol ?? 20;
+  const mean = kinematic(sets, slope, opt);
+  const pCrit = (p: Plane) => angDiff(p.dipDir, slope.dipDir) <= pTol && p.dip < slope.dip && p.dip > slope.friction;
+  const tCrit = (p: Plane) => angDiff(p.dipDir, (slope.dipDir + 180) % 360) <= tTol && 90 - p.dip + slope.friction < slope.dip;
+  const planar: number[] = [];
+  const toppling: number[] = [];
+  poles.forEach((p, i) => {
+    if (pCrit(p)) planar.push(i);
+    if (tCrit(p)) toppling.push(i);
+  });
+  const wedge: [number, number][] = [];
+  let pairs = 0;
+  for (let a = 0; a < poles.length; a++) {
+    for (let b = a + 1; b < poles.length; b++) {
+      if (labels[a] === labels[b] && labels[a] >= 0) continue; // 같은 Set 끼리는 제외
+      const x = intersection(poles[a], poles[b]);
+      if (!x) continue;
+      pairs++;
+      if (angDiff(x.trend, slope.dipDir) < 90 && x.plunge < slope.dip && x.plunge > slope.friction) wedge.push([a, b]);
+    }
+  }
+  const lv = (meanOk: boolean, n: number, minLocal: number): Level => (meanOk ? 'possible' : n >= minLocal ? 'local' : 'none');
+  return {
+    planar: { level: lv(mean.planar.some((r) => r.ok), planar.length, 1), critical: planar, total: poles.length },
+    wedge: { level: lv(mean.wedge.some((r) => r.ok), wedge.length, 2), critical: wedge, total: pairs },
+    toppling: { level: lv(mean.toppling.some((r) => r.ok), toppling.length, 1), critical: toppling, total: poles.length },
+  };
+}
