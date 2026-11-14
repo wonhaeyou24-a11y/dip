@@ -1,6 +1,7 @@
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import { useGoParent, useOverlay } from '../lib/nav';
 import { ConditionForm } from '../components/ConditionForm';
 import { MeasureSession } from '../components/MeasureSession';
 import { PhotoGrid } from '../components/PhotoGrid';
@@ -36,7 +37,10 @@ export function SetScreen() {
   const { fid = '', sid = '', setid = '' } = useParams();
   const navigate = useNavigate();
   const [copyMsg, setCopyMsg] = useState<string | null>(null);
-  const [finding, setFinding] = useState(false);
+  const find = useOverlay('find');
+  const finding = find.isOpen;
+  const goParent = useGoParent(`/f/${fid}/s/${sid}`);
+  const siblings = useLiveQuery(() => db.sets.where('stationId').equals(sid).sortBy('order'), [sid], []);
 
   const set = useLiveQuery(() => db.sets.get(setid), [setid]);
   const station = useLiveQuery(() => db.stations.get(sid), [sid]);
@@ -89,11 +93,12 @@ export function SetScreen() {
     save(patch);
   };
 
-  const goList = () => flushAndRun(() => navigate(`/f/${fid}/s/${sid}`));
+  // 다음 미완료 절리군으로 (없으면 새 절리군). 형제 절리군끼리는 기록을 쌓지 않고 교체해서 ‹ 한 번에 측점 화면으로 돌아간다.
+  const nextIncomplete = (siblings ?? []).find((s) => s.id !== setid && !s.condition?.complete);
   const saveAndNext = () =>
     flushAndRun(async () => {
-      const id = await createSet(sid);
-      navigate(`/f/${fid}/s/${sid}/set/${id}`);
+      const id = nextIncomplete ? nextIncomplete.id : await createSet(sid);
+      navigate(`/f/${fid}/s/${sid}/set/${id}`, { replace: true });
     });
 
   return (
@@ -178,7 +183,7 @@ export function SetScreen() {
                 </p>
               ) : null;
             })()}
-            <button className="ghost" style={{ marginTop: 8, width: '100%' }} onClick={() => setFinding(true)}>
+            <button className="ghost" style={{ marginTop: 8, width: '100%' }} onClick={find.open}>
               이 절리군 찾기 — 폰을 면에 대 보세요
             </button>
           </>
@@ -189,7 +194,7 @@ export function SetScreen() {
             mode="find"
             target={{ dip: set.orientation.dip, dipDir: set.orientation.dipDirection }}
             targetLabel={set.name}
-            onClose={() => setFinding(false)}
+            onClose={find.close}
           />
         )}
       </div>
@@ -244,11 +249,11 @@ export function SetScreen() {
       </div>
 
       <StickyBar>
-        <button className="ghost" onClick={goList}>
-          저장하고 목록
+        <button className="ghost" onClick={goParent}>
+          측점으로
         </button>
         <button className="primary" onClick={saveAndNext}>
-          저장 후 다음 {SET_NAMES[setCount] ?? '절리군'}
+          {nextIncomplete ? `다음 미완료: ${nextIncomplete.name}` : `새 절리군 ${SET_NAMES[setCount] ?? ''}`}
         </button>
       </StickyBar>
     </>

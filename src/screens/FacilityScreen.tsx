@@ -3,7 +3,8 @@ import { useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { PointMap } from '../components/PointMap';
 import { PriorPanel } from '../components/PriorPanel';
-import { StickyBar, flushAndRun } from '../components/StickyBar';
+import { StickyBar } from '../components/StickyBar';
+import { useGoParent } from '../lib/nav';
 import {
   createSoilPoint,
   createStation,
@@ -45,6 +46,7 @@ export function FacilityScreen() {
   const fileRef = useRef<HTMLInputElement>(null);
 
   const facility = useLiveQuery(() => db.facilities.get(fid), [fid]);
+  const goParent = useGoParent(facility?.projectId ? `/p/${facility.projectId}` : '/');
   const stations = useLiveQuery(
     () => db.stations.where('facilityId').equals(fid).toArray(),
     [fid],
@@ -289,11 +291,8 @@ export function FacilityScreen() {
       </div>
 
       <StickyBar>
-        <button
-          className="primary"
-          onClick={() => flushAndRun(() => navigate(facility.projectId ? `/p/${facility.projectId}` : '/'))}
-        >
-          저장하고 시설물 목록
+        <button className="primary" onClick={goParent}>
+          시설물 목록으로
         </button>
       </StickyBar>
     </>

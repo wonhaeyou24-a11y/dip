@@ -5,8 +5,9 @@ import {
   Route,
   Routes,
   useLocation,
-  useNavigate,
+  useParams,
 } from 'react-router-dom';
+import { useLiveQuery } from 'dexie-react-hooks';
 import { FacilityScreen } from './screens/FacilityScreen';
 import { ProjectScreen } from './screens/ProjectScreen';
 import { ProjectsScreen } from './screens/ProjectsScreen';
@@ -14,7 +15,8 @@ import { SetScreen } from './screens/SetScreen';
 import { SoilScreen } from './screens/SoilScreen';
 import { StationScreen } from './screens/StationScreen';
 import { UpdatePrompt } from './components/UpdatePrompt';
-import { ensurePersistentStorage, migrateLegacyPhotos } from './db/db';
+import { db, ensurePersistentStorage, migrateLegacyPhotos } from './db/db';
+import { NavTracker, useGoParent } from './lib/nav';
 import { HeaderProvider, useHeader } from './lib/headerContext';
 
 function ScrollToTop() {
@@ -26,15 +28,24 @@ function ScrollToTop() {
 }
 
 function Shell({ title, children }: { title: string; children: React.ReactNode }) {
-  const navigate = useNavigate();
   const { subtitle } = useHeader();
+  const { pid, fid, sid } = useParams();
+  const fac = useLiveQuery(() => (fid ? db.facilities.get(fid) : undefined), [fid]);
   const atRoot = title === '프로젝트';
+  // 화면마다 정해진 부모 화면 (‹ 는 기록이 아니라 이 규칙으로 간다)
+  const parent =
+    title === '시설물 목록' && pid ? '/' :
+    title === '시설물 조사' ? (fac?.projectId ? `/p/${fac.projectId}` : '/') :
+    title === '측점 조사' || title === '토양경도 조사' ? `/f/${fid}` :
+    title === '절리군 조사' ? `/f/${fid}/s/${sid}` :
+    '/';
+  const goBack = useGoParent(parent);
   return (
     <div className="app">
       <header className="app-header">
         <div className="app-header-row">
           {!atRoot ? (
-            <button className="back" onClick={() => navigate(-1)} aria-label="뒤로">
+            <button className="back" onClick={goBack} aria-label="뒤로">
               ‹
             </button>
           ) : (
@@ -64,6 +75,7 @@ export default function App() {
     <HashRouter>
       <HeaderProvider>
         <ScrollToTop />
+        <NavTracker />
         <UpdatePrompt />
         <Routes>
         <Route

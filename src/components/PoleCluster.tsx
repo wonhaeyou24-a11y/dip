@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useOverlay } from '../lib/nav';
 import {
   createSet,
   db,
@@ -32,7 +33,9 @@ export function PoleCluster({ station, facility }: { station: Station; facility?
   const [dip, setDip] = useState('');
   const [dir, setDir] = useState('');
   const [msg, setMsg] = useState('');
-  const [session, setSession] = useState(false);
+  const ov = useOverlay('measure');
+  const session = ov.isOpen;
+  const wasOpen = useRef(false);
   const [typeFilter, setTypeFilter] = useState<'전체' | DiscontinuityType>('전체');
   const an = facility?.analysis ?? {};
   const slopeDip = station.slope?.dip ?? an.slopeDip;
@@ -99,6 +102,12 @@ export function PoleCluster({ station, facility }: { station: Station; facility?
     void updateFacility(facility.id, { analysis: { ...an, [key]: Number.isFinite(n) ? n : undefined } });
   };
 
+  useEffect(() => {
+    if (wasOpen.current && !session && poles.length >= 2) auto();
+    wasOpen.current = session;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session]);
+
   const used = sets.map((s, i) => ({ s, i })).filter((x) => x.s.count > 0);
   const slopeOk = slopeDip !== undefined && slopeDir !== undefined && friction !== undefined;
   const plotSlope = slopeOk ? { dip: slopeDip!, dipDir: slopeDir!, friction: friction! } : null;
@@ -115,7 +124,7 @@ export function PoleCluster({ station, facility }: { station: Station; facility?
     <div className="card">
       <h2>불연속면 측정 · 평사투영 ({poles.length}개)</h2>
       <p className="muted">현장에서는 Set 을 정하지 말고 면을 모두 재세요. 분류는 [자동 분류]가 합니다.</p>
-      <button className="primary" onClick={() => setSession(true)}>
+      <button className="primary" onClick={ov.open}>
         측정 시작 (여러 면을 연속으로)
       </button>
       <div className="row-inline" style={{ gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
@@ -131,10 +140,7 @@ export function PoleCluster({ station, facility }: { station: Station; facility?
           sets={sets}
           onAdd={(d, dd, spread) => void appendPole({ dip: d, dipDir: dd, type: '절리', spread })}
           onUndo={() => void undoPole()}
-          onClose={() => {
-            setSession(false);
-            if ((station.poles ?? []).length >= 2) auto();
-          }}
+          onClose={ov.close}
         />
       )}
       {msg && <p className="muted">{msg}</p>}

@@ -1,7 +1,8 @@
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useRef, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
-import { StickyBar, flushAndRun } from '../components/StickyBar';
+import { Link, useParams } from 'react-router-dom';
+import { StickyBar } from '../components/StickyBar';
+import { useGoParent } from '../lib/nav';
 import {
   createFacility,
   db,
@@ -15,7 +16,7 @@ import { importPriorFiles, kindOfCategory, type ImportLine } from '../lib/prior'
 /** 프로젝트 화면: 시설물 등록 + 전차자료(사전조사) 가져오기 */
 export function ProjectScreen() {
   const { pid = '' } = useParams();
-  const navigate = useNavigate();
+  const goParent = useGoParent('/');
   const project = useLiveQuery(() => db.projects.get(pid), [pid]);
   const facilities = useLiveQuery(
     () => db.facilities.where('projectId').equals(pid).toArray(),
@@ -150,7 +151,7 @@ export function ProjectScreen() {
       </div>
 
       <StickyBar>
-        <button className="primary" onClick={() => flushAndRun(() => navigate('/'))}>
+        <button className="primary" onClick={goParent}>
           프로젝트 목록
         </button>
       </StickyBar>

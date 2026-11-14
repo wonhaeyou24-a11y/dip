@@ -3,9 +3,10 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { MultiValueInput } from '../components/MultiValueInput';
 import { compareOrientation, matchPriorRebound, matchPriorReboundSummary, matchPriorSet, priorDiscontinuityRecords, priorSetText, seepageFromText } from '../lib/prior';
+import { useGoParent } from '../lib/nav';
 import { PoleCluster } from '../components/PoleCluster';
 import { PhotoGrid } from '../components/PhotoGrid';
-import { StickyBar, flushAndRun } from '../components/StickyBar';
+import { StickyBar } from '../components/StickyBar';
 import { STATION_PHOTO_CATEGORIES } from '../db/db';
 import {
   createSet,
@@ -25,6 +26,7 @@ import { SEEPAGE_CLASSES, SEEPAGE_LABELS, type SeepageClass } from '../lib/scori
 export function StationScreen() {
   const { fid = '', sid = '' } = useParams();
   const navigate = useNavigate();
+  const goParent = useGoParent(`/f/${fid}`);
 
   const station = useLiveQuery(() => db.stations.get(sid), [sid]);
   const facility = useLiveQuery(() => db.facilities.get(fid), [fid]);
@@ -295,8 +297,8 @@ export function StationScreen() {
       </div>
 
       <StickyBar>
-        <button className="primary" onClick={() => flushAndRun(() => navigate(`/f/${fid}`))}>
-          저장하고 측점 목록
+        <button className="primary" onClick={goParent}>
+          측점 목록으로
         </button>
       </StickyBar>
     </>

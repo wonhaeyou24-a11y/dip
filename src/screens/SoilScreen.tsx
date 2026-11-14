@@ -1,9 +1,10 @@
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useEffect, useRef, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import { MultiValueInput } from '../components/MultiValueInput';
 import { PhotoGrid } from '../components/PhotoGrid';
-import { StickyBar, flushAndRun } from '../components/StickyBar';
+import { StickyBar } from '../components/StickyBar';
+import { useGoParent } from '../lib/nav';
 import {
   SOIL_PHOTO_CATEGORIES,
   db,
@@ -18,7 +19,7 @@ import { SOIL_IDS, SOIL_SLOPE_POSITIONS, type SoilSlopePosition } from '../lib/l
 
 export function SoilScreen() {
   const { fid = '', soilId = '' } = useParams();
-  const navigate = useNavigate();
+  const goParent = useGoParent(`/f/${fid}`);
 
   const soil = useLiveQuery(() => db.soils.get(soilId), [soilId]);
   const facility = useLiveQuery(() => db.facilities.get(fid), [fid]);
@@ -174,8 +175,8 @@ export function SoilScreen() {
       </div>
 
       <StickyBar>
-        <button className="primary" onClick={() => flushAndRun(() => navigate(`/f/${fid}`))}>
-          저장하고 목록
+        <button className="primary" onClick={goParent}>
+          시설물로 돌아가기
         </button>
       </StickyBar>
     </>
