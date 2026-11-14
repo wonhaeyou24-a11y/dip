@@ -33,6 +33,26 @@ body,
 #root {
   height: 100%;
 }
+html,
+body {
+  overflow-x: hidden;
+  max-width: 100%;
+}
+svg,
+img {
+  max-width: 100%;
+}
+.row input,
+.row select,
+.row-inline input,
+.row-inline select {
+  min-width: 0;
+  max-width: 100%;
+}
+.row-label {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
 body {
   margin: 0;
   background: var(--bg);
@@ -46,6 +66,7 @@ body {
 }
 
 .app {
+  overflow-x: hidden;
   max-width: 500px;
   margin: 0 auto;
   min-height: 100%;

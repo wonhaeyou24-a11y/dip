@@ -105,12 +105,9 @@ export function MeasureSession({ title, mode, poles = [], sets = [], target, tar
 
   const found = diff !== null && diff <= 10;
   return (
-    <div className="measure-full" style={{ position: 'fixed', inset: 0, zIndex: 1000, background: found ? '#0f5132' : 'var(--bg, #fff)', color: found ? '#fff' : 'inherit', overflowY: 'auto', padding: 16 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+    <div className="measure-full" style={{ position: 'fixed', inset: 0, zIndex: 3000, background: found ? '#0f5132' : 'var(--bg, #fff)', color: found ? '#fff' : 'inherit', overflowY: 'auto', overflowX: 'hidden', padding: '16px 16px calc(110px + env(safe-area-inset-bottom))' }}>
+      <div style={{ textAlign: 'center' }}>
         <strong>{title}</strong>
-        <button className="ghost" onClick={onClose}>
-          {mode === 'measure' ? '완료' : '닫기'}
-        </button>
       </div>
       {!isSecureContextOk() && <div className="warn">HTTPS(또는 localhost)에서만 센서가 동작합니다.</div>}
       {perm === 'denied' && <div className="warn">센서 권한이 거부되었습니다. 브라우저 설정에서 허용하세요.</div>}
@@ -148,9 +145,6 @@ export function MeasureSession({ title, mode, poles = [], sets = [], target, tar
               지금 면은 <strong>SET{near.i + 1}</strong> 에 가장 가깝습니다 ({near.a.toFixed(0)}°)
             </p>
           )}
-          <button className="primary" style={{ width: '100%', fontSize: 20, padding: 16 }} onClick={record} disabled={!cur}>
-            측정 저장 (#{poles.length + 1})
-          </button>
           {flash && <p style={{ textAlign: 'center', color: '#0a7d3b' }}>{flash}</p>}
           <details style={{ marginTop: 10 }}>
             <summary>직접 입력</summary>
@@ -171,14 +165,7 @@ export function MeasureSession({ title, mode, poles = [], sets = [], target, tar
             </div>
           </details>
           <div style={{ marginTop: 12 }}>
-            <div className="row-inline" style={{ justifyContent: 'space-between' }}>
-              <strong>측정 {poles.length}개</strong>
-              {poles.length > 0 && onUndo && (
-                <button className="ghost" onClick={onUndo}>
-                  마지막 취소
-                </button>
-              )}
-            </div>
+            <strong>측정 {poles.length}개</strong>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 6 }}>
               {poles.map((p, i) => (
                 <span key={i} className="pill">
@@ -189,6 +176,28 @@ export function MeasureSession({ title, mode, poles = [], sets = [], target, tar
           </div>
         </>
       )}
+      {/* 화면 아래 고정 버튼 — 현장에서 한 손 엄지로 누르기 쉽게 (기존 아래 버튼을 대신한다) */}
+      <div className="sticky-bar" style={{ zIndex: 3100 }}>
+        {mode === 'measure' ? (
+          <>
+            {poles.length > 0 && onUndo && (
+              <button className="ghost" style={{ flex: 1 }} onClick={onUndo}>
+                취소
+              </button>
+            )}
+            <button className="primary" style={{ flex: 2, fontSize: 18, padding: '14px 0' }} onClick={record} disabled={!cur}>
+              측정 저장 #{poles.length + 1}
+            </button>
+            <button className="ghost" style={{ flex: 1 }} onClick={onClose}>
+              완료
+            </button>
+          </>
+        ) : (
+          <button className="primary" style={{ fontSize: 18, padding: '14px 0' }} onClick={onClose}>
+            닫기
+          </button>
+        )}
+      </div>
     </div>
   );
 }

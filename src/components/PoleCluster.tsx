@@ -274,8 +274,8 @@ export function PoleCluster({ station, facility }: { station: Station; facility?
             {(
               [
                 ['friction', '마찰각 φ(°)'],
-                ['slopeDip', '사면 경사(°) — 측점별 값이 없을 때'],
-                ['slopeDipDir', '사면 경사방향(°) — 측점별 값이 없을 때'],
+                ['slopeDip', '사면 경사(°)'],
+                ['slopeDipDir', '사면 경사방향(°)'],
               ] as const
             ).map(([key, label]) => (
               <div className="row" key={key}>
@@ -284,7 +284,7 @@ export function PoleCluster({ station, facility }: { station: Station; facility?
               </div>
             ))}
           </div>
-          <p className="muted">평사투영 해석에는 점착력을 쓰지 않습니다.</p>
+          <p className="muted">사면 경사·방향은 측점별 값이 없을 때만 씁니다. 평사투영 해석에는 점착력을 쓰지 않습니다.</p>
         </details>
       )}
     </div>
