@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { MultiValueInput } from '../components/MultiValueInput';
 import { compareOrientation, matchPriorRebound, matchPriorReboundSummary, matchPriorSet, priorDiscontinuityRecords, priorSetText, seepageFromText } from '../lib/prior';
+import { PoleCluster } from '../components/PoleCluster';
 import { PhotoGrid } from '../components/PhotoGrid';
 import { StickyBar, flushAndRun } from '../components/StickyBar';
 import { STATION_PHOTO_CATEGORIES } from '../db/db';
@@ -144,6 +145,8 @@ export function StationScreen() {
           </div>
         </div>
       </div>
+
+      <PoleCluster station={st} facility={facility} />
 
       <button
         className="primary"

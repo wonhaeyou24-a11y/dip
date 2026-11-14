@@ -2,7 +2,9 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ConditionForm } from '../components/ConditionForm';
+import { MeasureSession } from '../components/MeasureSession';
 import { OrientationField } from '../components/OrientationField';
+import { planeAngle } from '../lib/setCluster';
 import { StickyBar, flushAndRun } from '../components/StickyBar';
 import {
   copyPreviousSet,
@@ -32,6 +34,7 @@ export function SetScreen() {
   const { fid = '', sid = '', setid = '' } = useParams();
   const navigate = useNavigate();
   const [copyMsg, setCopyMsg] = useState<string | null>(null);
+  const [finding, setFinding] = useState(false);
 
   const set = useLiveQuery(() => db.sets.get(setid), [setid]);
   const station = useLiveQuery(() => db.stations.get(sid), [sid]);
@@ -157,6 +160,36 @@ export function SetScreen() {
           onChange={(o: SetOrientation) => save({ orientation: o })}
           prior={priorSet && priorSet.dip !== undefined && priorSet.dipDir !== undefined ? { dip: priorSet.dip, dipDir: priorSet.dipDir } : undefined}
         />
+        {set.orientation && (
+          <>
+            {(() => {
+              // 이 Set 으로 묶인 측정 중 평균에 가장 가까운 것 = 절리상태를 조사할 대표면
+              const n = /(\d+)$/.exec(set.name)?.[1];
+              const poles = station?.poles ?? [];
+              const labels = station?.poleLabels ?? [];
+              const mem = n ? poles.map((p, i) => ({ p, i })).filter((x) => labels[x.i] === parseInt(n, 10) - 1) : [];
+              const tgt = { dip: set.orientation.dip, dipDir: set.orientation.dipDirection };
+              const rep = mem.slice().sort((a, b) => planeAngle(a.p, tgt) - planeAngle(b.p, tgt))[0];
+              return rep ? (
+                <p className="muted" style={{ marginTop: 8 }}>
+                  조사할 면: 측정 <strong>#{rep.i + 1}</strong> ({String(Math.round(rep.p.dip)).padStart(2, '0')}/{String(Math.round(rep.p.dipDir)).padStart(3, '0')}) — 이 Set 으로 묶인 {mem.length}개 중 평균에 가장 가깝습니다. 측정 목록: {mem.map((x) => '#' + (x.i + 1)).join(', ')}
+                </p>
+              ) : null;
+            })()}
+            <button className="ghost" style={{ marginTop: 8, width: '100%' }} onClick={() => setFinding(true)}>
+              이 절리군 찾기 — 폰을 면에 대 보세요
+            </button>
+          </>
+        )}
+        {finding && set.orientation && (
+          <MeasureSession
+            title={`${set.name} 찾기`}
+            mode="find"
+            target={{ dip: set.orientation.dip, dipDir: set.orientation.dipDirection }}
+            targetLabel={set.name}
+            onClose={() => setFinding(false)}
+          />
+        )}
       </div>
 
       <div className="card">

@@ -91,6 +91,8 @@ export interface Facility {
   prior?: PriorData;
   /** 금회 조사할 항목 (전차 자료를 보고 선택) */
   plan?: TestKind[];
+  /** 안정해석에 쓸 값 (사면 방향·마찰각·점착력) — Set 평면파괴 가능성 참고 표시에 쓴다 */
+  analysis?: { slopeDip?: number; slopeDipDir?: number; friction?: number };
   createdAt: number;
   updatedAt: number;
 }
@@ -114,6 +116,12 @@ export interface Station {
   surveyedAt: number;
   /** 반발경도 R 값 (최대 20개) */
   reboundValues?: number[];
+  /** 사이트에서 잰 불연속면 극점 전체 (경사/경사방향) — 평사투영에서 Set 으로 묶는다 */
+  poles?: { dip: number; dipDir: number }[];
+  /** 극점별 소속 Set 번호(0부터, 예외는 -1) */
+  poleLabels?: number[];
+  /** 묶을 Set 개수 */
+  poleK?: number;
   wallStrength_MPa?: number; // (현재 UI 미사용, 결과보고 빈칸)
   seepage: SeepageClass | null;
   blockSize?: { x: number; y: number; z: number };
